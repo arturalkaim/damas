@@ -2,5 +2,5 @@
 
 ![Example](docs/exampleUI.png)
 
-![Game Play](docs/AutoGamePlay.mov)
+![Game Play](docs/AutoGamePlay.gif)
 
