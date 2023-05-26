@@ -58,7 +58,7 @@ class Piece {
         this.x0 = x;
         this.y0 = y;
         this.team = team;
-        this.king = true;
+        this.king = false;
     }
 
     draw() {
@@ -141,19 +141,19 @@ function setupGame() {
     let pieces = [];
 
     let pieceId = 0;
-    // for (let i = 0; i < 4; i++) {
-    //     let x = i * 2;
-    //     let y = 0;
-    //     let piece = new Piece(pieceId++, x, y, 1);
-    //     pieces.push(piece);
-    // }
+    for (let i = 0; i < 4; i++) {
+        let x = i * 2;
+        let y = 0;
+        let piece = new Piece(pieceId++, x, y, 1);
+        pieces.push(piece);
+    }
 
-    // for (let i = 0; i < 4; i++) {
-    //     let x = i * 2 + 1;
-    //     let y = 1;
-    //     let piece = new Piece(pieceId++, x, y, 1);
-    //     pieces.push(piece);
-    // }
+    for (let i = 0; i < 4; i++) {
+        let x = i * 2 + 1;
+        let y = 1;
+        let piece = new Piece(pieceId++, x, y, 1);
+        pieces.push(piece);
+    }
 
     for (let i = 0; i < 4; i++) {
         let x = i * 2;
@@ -163,19 +163,19 @@ function setupGame() {
     }
 
 
-    // for (let i = 0; i < 4; i++) {
-    //     let x = i * 2 + 1;
-    //     let y = 5;
-    //     let piece = new Piece(pieceId++, x, y, 2);
-    //     pieces.push(piece);
-    // }
+    for (let i = 0; i < 4; i++) {
+        let x = i * 2 + 1;
+        let y = 5;
+        let piece = new Piece(pieceId++, x, y, 2);
+        pieces.push(piece);
+    }
 
-    // for (let i = 0; i < 4; i++) {
-    //     let x = i * 2;
-    //     let y = 6;
-    //     let piece = new Piece(pieceId++, x, y, 2);
-    //     pieces.push(piece);
-    // }
+    for (let i = 0; i < 4; i++) {
+        let x = i * 2;
+        let y = 6;
+        let piece = new Piece(pieceId++, x, y, 2);
+        pieces.push(piece);
+    }
 
     for (let i = 0; i < 4; i++) {
         let x = i * 2 + 1;
@@ -416,16 +416,14 @@ function findBestMove(piece, moves) {
 
 
 
-function playPlayer2() {
-    if (playerTurn != 2)
-        return;
+function autoPlay() {
 
     let piece = null;
     let move = null;
 
     if (pieceSelected == null) {
-        // find all the pieces from player 2
-        let pieces = game.board.pieces.filter(p => p.team == 2);
+        // find all the pieces from current player
+        let pieces = game.board.pieces.filter(p => p.team == playerTurn);
         // find all the available moves for each piece
         let moves = [];
         for (let i = 0; i < pieces.length; i++) {
@@ -439,9 +437,9 @@ function playPlayer2() {
 
         console.log("moves", moves);
 
-        // if there are no available moves, player 1 wins
+        // if there are no available moves, the other player wins
         if (moves.length == 0) {
-            alert("Player 1 wins");
+            alert("Player " + (playerTurn == 1 ? 2 : 1) + " wins");
             return;
         }
 
@@ -459,7 +457,7 @@ function playPlayer2() {
         move = pieceAndMove.move;
 
         if (!piece || !move) {
-            alert("Player 1 wins");
+            alert("Player " + (playerTurn == 1 ? 2 : 1) + " wins");
             return;
         }
         pieceSelected = piece;
@@ -467,8 +465,7 @@ function playPlayer2() {
         piece = pieceSelected;
         move = canKillMore(pieceSelected);
         if (!move) {
-            debugger;
-            alert("Player 1 wins");
+            alert("Player " + (playerTurn == 1 ? 2 : 1) + " wins");
             return;
         }
     }
@@ -558,9 +555,9 @@ function setup() {
     resetButton.mousePressed(resetGame);
 
     // create a button to reset the game
-    let playButton = createButton('Play');
+    let playButton = createButton('Auto Play');
     playButton.position(410, 610);
-    playButton.mousePressed(playPlayer2);
+    playButton.mousePressed(autoPlay);
 
     setupGame();
 
