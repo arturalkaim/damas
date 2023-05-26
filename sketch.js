@@ -68,7 +68,7 @@ class Piece {
         // draw the piece
         let x = boardX + this.x * squareWidth;
         let y = boardY + this.y * squareHeight;
-
+        noStroke();
         if (this.team == 1) {
             fill(player1Color[0], player1Color[1], player1Color[2])
         }
@@ -394,7 +394,6 @@ function movePiece(piece, x, y) {
         // if the piece is not in a valid position, return it to its original position
         piece.x = piece.x0;
         piece.y = piece.y0;
-        pieceSelected = null;
     }
 
 

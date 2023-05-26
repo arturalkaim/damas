@@ -1,4 +1,6 @@
+[Play Here](https://arturalkaim.github.io/damas/)
 
 ![Example](docs/exampleUI.png)
 
-[Play Here](https://arturalkaim.github.io/damas/)
+![Game Play](docs/AutoGamePlay.mov)
+
