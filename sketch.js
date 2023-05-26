@@ -15,6 +15,9 @@ const squareHeight = boardHeight / 8;
 
 let playerTurn = 1;
 
+const player1Color = [55, 110, 60];
+const player2Color = [200, 200, 55];
+
 function drawBoard() {
     // Draw the board in the center of the canvas
     fill(255, 255, 255);
@@ -67,10 +70,10 @@ class Piece {
         let y = boardY + this.y * squareHeight;
 
         if (this.team == 1) {
-            fill(255, 0, 0);
+            fill(player1Color[0], player1Color[1], player1Color[2])
         }
         else {
-            fill(0, 0, 255);
+            fill(player2Color[0], player2Color[1], player2Color[2])
         }
         ellipse(x + squareWidth / 2, y + squareHeight / 2, squareWidth * 0.8, squareHeight * 0.8);
         if (this.king) {
@@ -104,11 +107,11 @@ class Game {
             this.board.draw();
 
         // draw the player turn text in the player color
-        if (playerTurn == 1) {
-            fill(255, 0, 0);
+        if (this.team == 1) {
+            fill(player1Color[0], player1Color[1], player1Color[2])
         }
         else {
-            fill(0, 0, 255);
+            fill(player2Color[0], player2Color[1], player2Color[2])
         }
         textSize(20);
         text("Player " + playerTurn + "'s turn", 10, 20);
@@ -358,12 +361,12 @@ function movePiece(piece, x, y) {
         piece.y = y;
 
         // check if the piece is now a king
-        if (piece.team == 1 && piece.y == 7) {
-            piece.king = true;
-        }
-        if (piece.team == 2 && piece.y == 0) {
-            piece.king = true;
-        }
+        // if (piece.team == 1 && piece.y == 7) {
+        //     piece.king = true;
+        // }
+        // if (piece.team == 2 && piece.y == 0) {
+        //     piece.king = true;
+        // }
 
         // if the piece is in a valid position, check if there is a piece in that position
         const killed = piceKilled(piece, x, y)
@@ -565,7 +568,7 @@ function setup() {
 
 
 function draw() {
-    background(200, 210, 200)
+    background(150, 180, 150)
     game.draw();
 
     drawAvailableMoves();
