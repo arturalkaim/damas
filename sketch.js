@@ -129,6 +129,7 @@ const PLAYER_HUMAN = 'human';
 const PLAYER_GREEDY = 'greedy';
 const PLAYER_SUPER_GREEDY = 'super_greedy';
 const PLAYER_MINIMAX = 'minimax';
+const PLAYER_MCTS = 'mcts';
 
 // Player type configuration
 let player1Type = PLAYER_HUMAN;
@@ -570,6 +571,231 @@ function minimaxAI(board, team, depth = 4) {
     return bestMove;
 }
 
+// ============================================
+// MONTE CARLO TREE SEARCH (MCTS)
+// ============================================
+
+/**
+ * MCTS Node - represents a game state in the search tree
+ */
+class MCTSNode {
+    constructor(board, team, parent = null, move = null, piece = null) {
+        this.board = board;
+        this.team = team;           // Team to play from this state
+        this.parent = parent;
+        this.move = move;           // Move that led to this state
+        this.piece = piece;         // Piece that made the move
+        this.children = [];
+        this.visits = 0;
+        this.wins = 0;
+        this.untriedMoves = null;   // Lazy initialization
+    }
+
+    /**
+     * Get untried moves (lazy initialization)
+     */
+    getUntriedMoves() {
+        if (this.untriedMoves === null) {
+            this.untriedMoves = getAllMovesForTeam(this.board, this.team);
+        }
+        return this.untriedMoves;
+    }
+
+    /**
+     * UCB1 formula for selection
+     * Balances exploitation (high win rate) vs exploration (less visited)
+     */
+    ucb1(explorationParam = 1.41) {
+        if (this.visits === 0) return Infinity;
+        return (this.wins / this.visits) +
+               explorationParam * Math.sqrt(Math.log(this.parent.visits) / this.visits);
+    }
+
+    /**
+     * Select best child using UCB1
+     */
+    selectChild() {
+        let bestChild = null;
+        let bestUCB = -Infinity;
+
+        for (let child of this.children) {
+            const ucb = child.ucb1();
+            if (ucb > bestUCB) {
+                bestUCB = ucb;
+                bestChild = child;
+            }
+        }
+        return bestChild;
+    }
+
+    /**
+     * Expand node by trying one untried move
+     */
+    expand() {
+        const untriedMoves = this.getUntriedMoves();
+        if (untriedMoves.length === 0) return null;
+
+        // Pick random untried move
+        const idx = Math.floor(Math.random() * untriedMoves.length);
+        const { piece, move } = untriedMoves.splice(idx, 1)[0];
+
+        // Apply move to get new board state
+        const result = applyMoveOnBoard(this.board, piece, move[0], move[1]);
+        const nextTeam = this.team === 1 ? 2 : 1;
+
+        // Create child node
+        const child = new MCTSNode(result.board, nextTeam, this, move, piece);
+        this.children.push(child);
+
+        return child;
+    }
+
+    /**
+     * Check if node is fully expanded
+     */
+    isFullyExpanded() {
+        return this.getUntriedMoves().length === 0;
+    }
+
+    /**
+     * Check if node is terminal (game over)
+     */
+    isTerminal() {
+        const status = isGameOver(this.board);
+        return status.over;
+    }
+}
+
+/**
+ * Run random simulation (playout) from a board state
+ * Returns: 1 if team1 wins, 0 if team2 wins, 0.5 for draw
+ */
+function mctsSimulate(board, currentTeam, maxMoves = 100) {
+    let simBoard = cloneBoard(board);
+    let team = currentTeam;
+    let moveCount = 0;
+
+    while (moveCount < maxMoves) {
+        const status = isGameOver(simBoard);
+        if (status.over) {
+            return status.winner === 1 ? 1 : 0;
+        }
+
+        const moves = getAllMovesForTeam(simBoard, team);
+        if (moves.length === 0) {
+            // No moves = loss for current team
+            return team === 1 ? 0 : 1;
+        }
+
+        // Random move selection (pure Monte Carlo)
+        const { piece, move } = moves[Math.floor(Math.random() * moves.length)];
+        const result = applyMoveOnBoard(simBoard, piece, move[0], move[1]);
+        simBoard = result.board;
+
+        team = team === 1 ? 2 : 1;
+        moveCount++;
+    }
+
+    // If max moves reached, evaluate board position
+    const score = evaluateBoard(simBoard);
+    return score > 0 ? 1 : (score < 0 ? 0 : 0.5);
+}
+
+/**
+ * Backpropagate simulation result up the tree
+ */
+function mctsBackpropagate(node, result, rootTeam) {
+    while (node !== null) {
+        node.visits++;
+        // Win is from perspective of root team
+        // But each node alternates team, so we need to flip
+        const nodeTeam = node.parent ? node.parent.team : rootTeam;
+        if (nodeTeam === 1) {
+            node.wins += result;
+        } else {
+            node.wins += (1 - result);
+        }
+        node = node.parent;
+    }
+}
+
+/**
+ * MCTS AI - Monte Carlo Tree Search
+ * Uses random simulations to evaluate moves
+ *
+ * Parameters:
+ * - iterations: number of simulations to run (more = better but slower)
+ */
+function mctsAI(board, team, iterations = 1000) {
+    const root = new MCTSNode(board, team);
+
+    // Check for immediate game over
+    if (root.isTerminal()) return null;
+
+    const moves = getAllMovesForTeam(board, team);
+    if (moves.length === 0) return null;
+    if (moves.length === 1) {
+        // Only one move available
+        return { piece: moves[0].piece, move: moves[0].move };
+    }
+
+    // Run MCTS iterations
+    for (let i = 0; i < iterations; i++) {
+        let node = root;
+
+        // 1. SELECTION - traverse tree using UCB1
+        while (!node.isTerminal() && node.isFullyExpanded() && node.children.length > 0) {
+            node = node.selectChild();
+        }
+
+        // 2. EXPANSION - add a new child node
+        if (!node.isTerminal() && !node.isFullyExpanded()) {
+            node = node.expand();
+        }
+
+        // 3. SIMULATION - random playout from this node
+        let result;
+        if (node && !node.isTerminal()) {
+            result = mctsSimulate(node.board, node.team);
+        } else if (node) {
+            // Terminal node - get actual result
+            const status = isGameOver(node.board);
+            result = status.winner === 1 ? 1 : 0;
+        } else {
+            continue;
+        }
+
+        // 4. BACKPROPAGATION - update statistics
+        mctsBackpropagate(node, result, team);
+    }
+
+    // Select best move (most visited child)
+    let bestChild = null;
+    let bestVisits = -1;
+
+    for (let child of root.children) {
+        if (child.visits > bestVisits) {
+            bestVisits = child.visits;
+            bestChild = child;
+        }
+    }
+
+    if (bestChild) {
+        const winRate = (bestChild.wins / bestChild.visits * 100).toFixed(1);
+        console.log(`MCTS: ${iterations} iterations, best move visited ${bestVisits} times, win rate ${winRate}%`);
+
+        // Find the original piece in the current board
+        const originalPiece = board.pieces.find(p => p.id === bestChild.piece.id);
+        return { piece: originalPiece, move: bestChild.move };
+    }
+
+    return null;
+}
+
+// ============================================
+// END MCTS
+// ============================================
+
 /**
  * Get AI move based on player type
  */
@@ -580,6 +806,8 @@ function getAIMove(playerType, team) {
         return superGreedyAI(game.board, team);
     } else if (playerType === PLAYER_MINIMAX) {
         return minimaxAI(game.board, team);
+    } else if (playerType === PLAYER_MCTS) {
+        return mctsAI(game.board, team);
     }
     return null;
 }
@@ -1110,6 +1338,7 @@ function setup() {
     player1Select.option('Greedy AI', PLAYER_GREEDY);
     player1Select.option('Super Greedy AI', PLAYER_SUPER_GREEDY);
     player1Select.option('Minimax AI', PLAYER_MINIMAX);
+    player1Select.option('MCTS AI', PLAYER_MCTS);
     player1Select.changed(() => {
         player1Type = player1Select.value();
         console.log('Player 1 type:', player1Type);
@@ -1127,6 +1356,7 @@ function setup() {
     player2Select.option('Greedy AI', PLAYER_GREEDY);
     player2Select.option('Super Greedy AI', PLAYER_SUPER_GREEDY);
     player2Select.option('Minimax AI', PLAYER_MINIMAX);
+    player2Select.option('MCTS AI', PLAYER_MCTS);
     player2Select.changed(() => {
         player2Type = player2Select.value();
         console.log('Player 2 type:', player2Type);
@@ -1166,13 +1396,15 @@ function drawPlayerTypes() {
     fill(55, 110, 60);
     const p1TypeLabel = player1Type === PLAYER_HUMAN ? '(Human)' :
                         player1Type === PLAYER_GREEDY ? '(Greedy)' :
-                        player1Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' : '(Minimax)';
+                        player1Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' :
+                        player1Type === PLAYER_MINIMAX ? '(Minimax)' : '(MCTS)';
 
     // Player 2 type
     fill(180, 180, 50);
     const p2TypeLabel = player2Type === PLAYER_HUMAN ? '(Human)' :
                         player2Type === PLAYER_GREEDY ? '(Greedy)' :
-                        player2Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' : '(Minimax)';
+                        player2Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' :
+                        player2Type === PLAYER_MINIMAX ? '(Minimax)' : '(MCTS)';
 
     // Show current player indicator with type
     textSize(16);
