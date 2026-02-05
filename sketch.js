@@ -127,6 +127,7 @@ class Player {
 // Player type constants
 const PLAYER_HUMAN = 'human';
 const PLAYER_GREEDY = 'greedy';
+const PLAYER_SUPER_GREEDY = 'super_greedy';
 const PLAYER_MINIMAX = 'minimax';
 
 // Player type configuration
@@ -398,6 +399,143 @@ function greedyAI(board, team) {
 }
 
 /**
+ * Count chain captures possible from a position
+ */
+function countChainCaptures(board, piece, x, y, depth = 0) {
+    const result = applyMoveOnBoard(board, piece, x, y);
+    if (!result.captured) return depth;
+
+    const newPiece = result.board.pieces.find(p => p.id === piece.id);
+    if (!newPiece) return depth + 1;
+
+    // Find additional capture moves
+    const captureMoves = findAvailableMovesOnBoard(newPiece, result.board)
+        .filter(m => Math.abs(newPiece.x0 - m[0]) === 2);
+
+    if (captureMoves.length === 0) return depth + 1;
+
+    // Recursively count best chain
+    let maxCaptures = depth + 1;
+    for (let move of captureMoves) {
+        const captures = countChainCaptures(result.board, newPiece, move[0], move[1], depth + 1);
+        maxCaptures = Math.max(maxCaptures, captures);
+    }
+    return maxCaptures;
+}
+
+/**
+ * Check if a square is safe (opponent can't capture piece there next turn)
+ */
+function isSquareSafe(board, x, y, team) {
+    const opponent = team === 1 ? 2 : 1;
+    const opponentPieces = board.pieces.filter(p => p.team === opponent);
+
+    for (let piece of opponentPieces) {
+        // Check if opponent can jump to capture a piece at (x, y)
+        const jumpMoves = [
+            [piece.x + 2, piece.y + 2],
+            [piece.x + 2, piece.y - 2],
+            [piece.x - 2, piece.y + 2],
+            [piece.x - 2, piece.y - 2]
+        ];
+
+        for (let [jx, jy] of jumpMoves) {
+            // Check if the jump would land on the other side of our position
+            const midX = (piece.x + jx) / 2;
+            const midY = (piece.y + jy) / 2;
+
+            if (midX === x && midY === y) {
+                // Check if this jump would be valid
+                if (jx >= 0 && jx <= 7 && jy >= 0 && jy <= 7) {
+                    // Check destination is empty
+                    const destOccupied = board.pieces.some(p => p.x === jx && p.y === jy);
+                    if (!destOccupied) {
+                        return false; // Not safe - opponent can capture here
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * SUPER GREEDY AI - Enhanced greedy with better heuristics
+ * Features:
+ * - Chain capture simulation (picks move with most total captures)
+ * - Safety check (avoids moves that allow opponent to capture)
+ * - Advancement bonus (prefers moving toward promotion)
+ * - Center control bonus (prefers center squares)
+ */
+function superGreedyAI(board, team) {
+    const pieces = board.pieces.filter(p => p.team === team);
+    let allMoves = [];
+
+    for (let piece of pieces) {
+        const moves = findAvailableMovesOnBoard(piece, board);
+        for (let move of moves) {
+            const isCapture = Math.abs(piece.x0 - move[0]) === 2;
+
+            // Calculate chain captures
+            let totalCaptures = 0;
+            if (isCapture) {
+                totalCaptures = countChainCaptures(board, piece, move[0], move[1]);
+            }
+
+            // Check safety
+            const safe = isSquareSafe(board, move[0], move[1], team);
+
+            // Advancement bonus (0-7 scale)
+            let advancement = 0;
+            if (!piece.king) {
+                if (team === 1) {
+                    advancement = move[1]; // Team 1 advances down (higher y)
+                } else {
+                    advancement = 7 - move[1]; // Team 2 advances up (lower y)
+                }
+            }
+
+            // Center control bonus (0-4 scale)
+            const centerX = 4 - Math.abs(3.5 - move[0]);
+            const centerY = 4 - Math.abs(3.5 - move[1]);
+            const centerBonus = (centerX + centerY) / 2;
+
+            // Calculate composite score
+            // Priority: captures > safety > advancement > center
+            let score = 0;
+            score += totalCaptures * 1000;      // Captures are most important
+            score += safe ? 100 : 0;            // Safety bonus
+            score += advancement * 10;          // Advancement
+            score += centerBonus * 1;           // Center control
+
+            allMoves.push({
+                piece: piece,
+                move: move,
+                score: score,
+                captures: totalCaptures,
+                safe: safe
+            });
+        }
+    }
+
+    if (allMoves.length === 0) return null;
+
+    // Sort by score descending
+    allMoves.sort((a, b) => b.score - a.score);
+
+    // Filter to best moves (within 10% of top score to add some variety)
+    const maxScore = allMoves[0].score;
+    const threshold = maxScore > 0 ? maxScore * 0.9 : maxScore - 10;
+    const bestMoves = allMoves.filter(m => m.score >= threshold);
+
+    // Random selection among top moves
+    const chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+
+    console.log(`Super Greedy: score=${chosen.score}, captures=${chosen.captures}, safe=${chosen.safe}`);
+    return chosen;
+}
+
+/**
  * MINIMAX AI - Look-ahead algorithm
  * Uses minimax with alpha-beta pruning
  */
@@ -438,6 +576,8 @@ function minimaxAI(board, team, depth = 4) {
 function getAIMove(playerType, team) {
     if (playerType === PLAYER_GREEDY) {
         return greedyAI(game.board, team);
+    } else if (playerType === PLAYER_SUPER_GREEDY) {
+        return superGreedyAI(game.board, team);
     } else if (playerType === PLAYER_MINIMAX) {
         return minimaxAI(game.board, team);
     }
@@ -968,6 +1108,7 @@ function setup() {
     player1Select.position(140, 612);
     player1Select.option('Human', PLAYER_HUMAN);
     player1Select.option('Greedy AI', PLAYER_GREEDY);
+    player1Select.option('Super Greedy AI', PLAYER_SUPER_GREEDY);
     player1Select.option('Minimax AI', PLAYER_MINIMAX);
     player1Select.changed(() => {
         player1Type = player1Select.value();
@@ -984,6 +1125,7 @@ function setup() {
     player2Select.position(445, 612);
     player2Select.option('Human', PLAYER_HUMAN);
     player2Select.option('Greedy AI', PLAYER_GREEDY);
+    player2Select.option('Super Greedy AI', PLAYER_SUPER_GREEDY);
     player2Select.option('Minimax AI', PLAYER_MINIMAX);
     player2Select.changed(() => {
         player2Type = player2Select.value();
@@ -1023,12 +1165,14 @@ function drawPlayerTypes() {
     // Player 1 type
     fill(55, 110, 60);
     const p1TypeLabel = player1Type === PLAYER_HUMAN ? '(Human)' :
-                        player1Type === PLAYER_GREEDY ? '(Greedy AI)' : '(Minimax AI)';
+                        player1Type === PLAYER_GREEDY ? '(Greedy)' :
+                        player1Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' : '(Minimax)';
 
     // Player 2 type
     fill(180, 180, 50);
     const p2TypeLabel = player2Type === PLAYER_HUMAN ? '(Human)' :
-                        player2Type === PLAYER_GREEDY ? '(Greedy AI)' : '(Minimax AI)';
+                        player2Type === PLAYER_GREEDY ? '(Greedy)' :
+                        player2Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' : '(Minimax)';
 
     // Show current player indicator with type
     textSize(16);
