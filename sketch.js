@@ -126,8 +126,11 @@ class Player {
 
 // Player type constants
 const PLAYER_HUMAN = 'human';
+const PLAYER_RANDOM = 'random';
 const PLAYER_GREEDY = 'greedy';
 const PLAYER_SUPER_GREEDY = 'super_greedy';
+const PLAYER_DEFENSIVE = 'defensive';
+const PLAYER_ADAPTIVE = 'adaptive';
 const PLAYER_MINIMAX = 'minimax';
 const PLAYER_MCTS = 'mcts';
 
@@ -397,6 +400,175 @@ function greedyAI(board, team) {
 
     // Random selection among equally good moves
     return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+}
+
+/**
+ * RANDOM AI - Pure random baseline
+ * Picks any legal move with equal probability
+ * Useful as a baseline to measure other AI performance
+ */
+function randomAI(board, team) {
+    const moves = getAllMovesForTeam(board, team);
+    if (moves.length === 0) return null;
+
+    const chosen = moves[Math.floor(Math.random() * moves.length)];
+    console.log(`Random AI: picked move randomly from ${moves.length} options`);
+    return chosen;
+}
+
+/**
+ * DEFENSIVE AI - Safety-first philosophy
+ * Prioritizes:
+ * 1. Not losing pieces (highest priority)
+ * 2. Blocking opponent attacks
+ * 3. Capturing only when safe
+ * 4. Retreating to back rank
+ */
+function defensiveAI(board, team) {
+    const pieces = board.pieces.filter(p => p.team === team);
+    let allMoves = [];
+
+    for (let piece of pieces) {
+        const moves = findAvailableMovesOnBoard(piece, board);
+        for (let move of moves) {
+            const isCapture = Math.abs(piece.x0 - move[0]) === 2;
+
+            // Check if current position is under threat
+            const currentlyThreatened = !isSquareSafe(board, piece.x, piece.y, team);
+
+            // Check if destination is safe
+            const destinationSafe = isSquareSafe(board, move[0], move[1], team);
+
+            // Simulate move and check if it exposes other pieces
+            const simResult = applyMoveOnBoard(board, piece, move[0], move[1]);
+            let exposedPieces = 0;
+            for (let p of simResult.board.pieces.filter(p => p.team === team)) {
+                if (!isSquareSafe(simResult.board, p.x, p.y, team)) {
+                    exposedPieces++;
+                }
+            }
+
+            // Back rank bonus (safer positions)
+            const backRankBonus = team === 1 ? (7 - move[1]) : move[1];
+
+            // Calculate defensive score
+            let score = 0;
+            score += currentlyThreatened && destinationSafe ? 500 : 0;  // Escape danger
+            score += destinationSafe ? 200 : -300;                       // Stay safe
+            score -= exposedPieces * 100;                                // Don't expose teammates
+            score += isCapture && destinationSafe ? 150 : 0;            // Safe captures only
+            score += backRankBonus * 10;                                 // Prefer back positions
+
+            allMoves.push({
+                piece: piece,
+                move: move,
+                score: score,
+                safe: destinationSafe,
+                escaping: currentlyThreatened && destinationSafe
+            });
+        }
+    }
+
+    if (allMoves.length === 0) return null;
+
+    allMoves.sort((a, b) => b.score - a.score);
+
+    const maxScore = allMoves[0].score;
+    const bestMoves = allMoves.filter(m => m.score >= maxScore - 50);
+    const chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+
+    console.log(`Defensive AI: score=${chosen.score}, safe=${chosen.safe}, escaping=${chosen.escaping}`);
+    return chosen;
+}
+
+/**
+ * ADAPTIVE AI - Changes strategy based on game state
+ * - When ahead: plays defensively (protect lead)
+ * - When behind: plays aggressively (take risks)
+ * - When even: plays positionally (control center, advance)
+ */
+function adaptiveAI(board, team) {
+    const myPieces = board.pieces.filter(p => p.team === team);
+    const oppPieces = board.pieces.filter(p => p.team !== team);
+
+    // Calculate material advantage
+    const myMaterial = myPieces.reduce((sum, p) => sum + (p.king ? 15 : 10), 0);
+    const oppMaterial = oppPieces.reduce((sum, p) => sum + (p.king ? 15 : 10), 0);
+    const advantage = myMaterial - oppMaterial;
+
+    // Determine strategy
+    let strategy;
+    if (advantage >= 20) {
+        strategy = 'defensive';  // Protect the lead
+    } else if (advantage <= -20) {
+        strategy = 'aggressive'; // Take risks to catch up
+    } else {
+        strategy = 'positional'; // Focus on board control
+    }
+
+    const pieces = board.pieces.filter(p => p.team === team);
+    let allMoves = [];
+
+    for (let piece of pieces) {
+        const moves = findAvailableMovesOnBoard(piece, board);
+        for (let move of moves) {
+            const isCapture = Math.abs(piece.x0 - move[0]) === 2;
+            const safe = isSquareSafe(board, move[0], move[1], team);
+
+            // Chain capture potential
+            let chainCaptures = 0;
+            if (isCapture) {
+                chainCaptures = countChainCaptures(board, piece, move[0], move[1]);
+            }
+
+            // Advancement (toward promotion)
+            const advancement = team === 1 ? move[1] : (7 - move[1]);
+
+            // Center control
+            const centerBonus = 4 - Math.abs(3.5 - move[0]) + 4 - Math.abs(3.5 - move[1]);
+
+            let score = 0;
+
+            if (strategy === 'aggressive') {
+                // Aggressive: prioritize captures and advancement, ignore safety
+                score += chainCaptures * 200;
+                score += isCapture ? 150 : 0;
+                score += advancement * 20;
+                score += safe ? 30 : 0;  // Safety is low priority
+                console.log
+            } else if (strategy === 'defensive') {
+                // Defensive: prioritize safety, only safe captures
+                score += safe ? 300 : -200;
+                score += (isCapture && safe) ? 100 : 0;
+                score -= advancement * 5;  // Don't overextend
+                score += (7 - advancement) * 10;  // Prefer back positions
+            } else {
+                // Positional: balanced approach
+                score += chainCaptures * 100;
+                score += safe ? 150 : -100;
+                score += centerBonus * 15;
+                score += advancement * 10;
+            }
+
+            allMoves.push({
+                piece: piece,
+                move: move,
+                score: score,
+                strategy: strategy
+            });
+        }
+    }
+
+    if (allMoves.length === 0) return null;
+
+    allMoves.sort((a, b) => b.score - a.score);
+
+    const maxScore = allMoves[0].score;
+    const bestMoves = allMoves.filter(m => m.score >= maxScore * 0.9);
+    const chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+
+    console.log(`Adaptive AI [${strategy.toUpperCase()}]: advantage=${advantage}, score=${chosen.score}`);
+    return chosen;
 }
 
 /**
@@ -796,14 +968,242 @@ function mctsAI(board, team, iterations = 1000) {
 // END MCTS
 // ============================================
 
+// ============================================
+// TOURNAMENT SYSTEM
+// ============================================
+
+// Tournament state
+let tournamentRunning = false;
+let tournamentResults = {};
+let tournamentMatchups = [];
+let currentMatchup = 0;
+let gamesPerMatchup = 2;  // Each pair plays 2 games (swap sides)
+let currentGameInMatchup = 0;
+let tournamentMoveCount = 0;
+const MAX_TOURNAMENT_MOVES = 200;  // Prevent infinite games
+
+// All AI types for tournament (exclude human)
+const AI_TYPES = [
+    PLAYER_RANDOM,
+    PLAYER_GREEDY,
+    PLAYER_SUPER_GREEDY,
+    PLAYER_DEFENSIVE,
+    PLAYER_ADAPTIVE,
+    PLAYER_MINIMAX,
+    PLAYER_MCTS
+];
+
+const AI_NAMES = {
+    [PLAYER_RANDOM]: 'Random',
+    [PLAYER_GREEDY]: 'Greedy',
+    [PLAYER_SUPER_GREEDY]: 'Super Greedy',
+    [PLAYER_DEFENSIVE]: 'Defensive',
+    [PLAYER_ADAPTIVE]: 'Adaptive',
+    [PLAYER_MINIMAX]: 'Minimax',
+    [PLAYER_MCTS]: 'MCTS'
+};
+
+/**
+ * Initialize tournament
+ */
+function initTournament() {
+    tournamentResults = {};
+    tournamentMatchups = [];
+
+    // Initialize results for each AI
+    for (let ai of AI_TYPES) {
+        tournamentResults[ai] = { wins: 0, losses: 0, draws: 0, points: 0 };
+    }
+
+    // Create all matchups (round-robin)
+    for (let i = 0; i < AI_TYPES.length; i++) {
+        for (let j = i + 1; j < AI_TYPES.length; j++) {
+            tournamentMatchups.push([AI_TYPES[i], AI_TYPES[j]]);
+        }
+    }
+
+    currentMatchup = 0;
+    currentGameInMatchup = 0;
+    console.log(`Tournament initialized: ${tournamentMatchups.length} matchups, ${gamesPerMatchup} games each`);
+}
+
+/**
+ * Run a single tournament game (non-blocking, uses game loop)
+ */
+function runTournamentGame() {
+    if (!tournamentRunning) return;
+
+    const matchup = tournamentMatchups[currentMatchup];
+    // Alternate sides
+    if (currentGameInMatchup === 0) {
+        player1Type = matchup[0];
+        player2Type = matchup[1];
+    } else {
+        player1Type = matchup[1];
+        player2Type = matchup[0];
+    }
+
+    tournamentMoveCount = 0;
+    resetGame();
+
+    console.log(`\n=== Match ${currentMatchup + 1}/${tournamentMatchups.length}, Game ${currentGameInMatchup + 1}/${gamesPerMatchup} ===`);
+    console.log(`${AI_NAMES[player1Type]} vs ${AI_NAMES[player2Type]}`);
+}
+
+/**
+ * Record tournament game result
+ */
+function recordTournamentResult(winner) {
+    const matchup = tournamentMatchups[currentMatchup];
+    let p1Type, p2Type;
+
+    if (currentGameInMatchup === 0) {
+        p1Type = matchup[0];
+        p2Type = matchup[1];
+    } else {
+        p1Type = matchup[1];
+        p2Type = matchup[0];
+    }
+
+    if (winner === 0) {
+        // Draw
+        tournamentResults[p1Type].draws++;
+        tournamentResults[p2Type].draws++;
+        tournamentResults[p1Type].points += 0.5;
+        tournamentResults[p2Type].points += 0.5;
+        console.log(`Result: DRAW`);
+    } else if (winner === 1) {
+        tournamentResults[p1Type].wins++;
+        tournamentResults[p2Type].losses++;
+        tournamentResults[p1Type].points += 1;
+        console.log(`Result: ${AI_NAMES[p1Type]} wins!`);
+    } else {
+        tournamentResults[p2Type].wins++;
+        tournamentResults[p1Type].losses++;
+        tournamentResults[p2Type].points += 1;
+        console.log(`Result: ${AI_NAMES[p2Type]} wins!`);
+    }
+
+    // Move to next game
+    currentGameInMatchup++;
+    if (currentGameInMatchup >= gamesPerMatchup) {
+        currentGameInMatchup = 0;
+        currentMatchup++;
+    }
+
+    // Check if tournament is complete
+    if (currentMatchup >= tournamentMatchups.length) {
+        finishTournament();
+    } else {
+        // Start next game after a short delay
+        setTimeout(runTournamentGame, 100);
+    }
+}
+
+/**
+ * Finish tournament and display results
+ */
+function finishTournament() {
+    tournamentRunning = false;
+
+    console.log('\n========================================');
+    console.log('         TOURNAMENT RESULTS');
+    console.log('========================================\n');
+
+    // Sort by points
+    const sorted = AI_TYPES
+        .map(ai => ({ type: ai, ...tournamentResults[ai] }))
+        .sort((a, b) => b.points - a.points);
+
+    console.log('Rank | AI Name       | W  | L  | D  | Pts');
+    console.log('-----|---------------|----|----|----|----- ');
+
+    sorted.forEach((ai, idx) => {
+        const name = AI_NAMES[ai.type].padEnd(13);
+        const w = String(ai.wins).padStart(2);
+        const l = String(ai.losses).padStart(2);
+        const d = String(ai.draws).padStart(2);
+        const pts = ai.points.toFixed(1).padStart(4);
+        console.log(`  ${idx + 1}  | ${name} | ${w} | ${l} | ${d} | ${pts}`);
+    });
+
+    console.log('\n========================================\n');
+
+    // Show alert with top 3
+    const top3 = sorted.slice(0, 3).map((ai, idx) =>
+        `${idx + 1}. ${AI_NAMES[ai.type]} (${ai.points} pts)`
+    ).join('\n');
+
+    alert(`Tournament Complete!\n\nTop 3:\n${top3}\n\nSee console for full results.`);
+
+    // Reset to human vs human
+    player1Type = PLAYER_HUMAN;
+    player2Type = PLAYER_HUMAN;
+}
+
+/**
+ * Start tournament
+ */
+function startTournament() {
+    if (tournamentRunning) {
+        console.log('Tournament already running!');
+        return;
+    }
+
+    tournamentRunning = true;
+    initTournament();
+    runTournamentGame();
+}
+
+/**
+ * Check for tournament game end (called from game loop)
+ */
+function checkTournamentGameEnd() {
+    if (!tournamentRunning) return false;
+
+    tournamentMoveCount++;
+
+    // Check for win
+    const team1Pieces = game.board.pieces.filter(p => p.team === 1).length;
+    const team2Pieces = game.board.pieces.filter(p => p.team === 2).length;
+
+    if (team1Pieces === 0) {
+        recordTournamentResult(2);
+        return true;
+    }
+    if (team2Pieces === 0) {
+        recordTournamentResult(1);
+        return true;
+    }
+
+    // Check for draw (max moves reached)
+    if (tournamentMoveCount >= MAX_TOURNAMENT_MOVES) {
+        console.log('Max moves reached - declaring draw');
+        recordTournamentResult(0);
+        return true;
+    }
+
+    return false;
+}
+
+// ============================================
+// END TOURNAMENT SYSTEM
+// ============================================
+
 /**
  * Get AI move based on player type
  */
 function getAIMove(playerType, team) {
-    if (playerType === PLAYER_GREEDY) {
+    if (playerType === PLAYER_RANDOM) {
+        return randomAI(game.board, team);
+    } else if (playerType === PLAYER_GREEDY) {
         return greedyAI(game.board, team);
     } else if (playerType === PLAYER_SUPER_GREEDY) {
         return superGreedyAI(game.board, team);
+    } else if (playerType === PLAYER_DEFENSIVE) {
+        return defensiveAI(game.board, team);
+    } else if (playerType === PLAYER_ADAPTIVE) {
+        return adaptiveAI(game.board, team);
     } else if (playerType === PLAYER_MINIMAX) {
         return minimaxAI(game.board, team);
     } else if (playerType === PLAYER_MCTS) {
@@ -869,6 +1269,11 @@ function executeAIMove() {
  * Check if game is over and show result
  */
 function checkGameOver() {
+    // In tournament mode, use tournament-specific handling
+    if (tournamentRunning) {
+        return checkTournamentGameEnd();
+    }
+
     if (game.board.pieces.filter(p => p.team === 1).length === 0) {
         setTimeout(() => alert("Player 2 wins!"), 100);
         return true;
@@ -1335,10 +1740,13 @@ function setup() {
     player1Select = createSelect();
     player1Select.position(140, 612);
     player1Select.option('Human', PLAYER_HUMAN);
-    player1Select.option('Greedy AI', PLAYER_GREEDY);
-    player1Select.option('Super Greedy AI', PLAYER_SUPER_GREEDY);
-    player1Select.option('Minimax AI', PLAYER_MINIMAX);
-    player1Select.option('MCTS AI', PLAYER_MCTS);
+    player1Select.option('Random', PLAYER_RANDOM);
+    player1Select.option('Greedy', PLAYER_GREEDY);
+    player1Select.option('Super Greedy', PLAYER_SUPER_GREEDY);
+    player1Select.option('Defensive', PLAYER_DEFENSIVE);
+    player1Select.option('Adaptive', PLAYER_ADAPTIVE);
+    player1Select.option('Minimax', PLAYER_MINIMAX);
+    player1Select.option('MCTS', PLAYER_MCTS);
     player1Select.changed(() => {
         player1Type = player1Select.value();
         console.log('Player 1 type:', player1Type);
@@ -1353,10 +1761,13 @@ function setup() {
     player2Select = createSelect();
     player2Select.position(445, 612);
     player2Select.option('Human', PLAYER_HUMAN);
-    player2Select.option('Greedy AI', PLAYER_GREEDY);
-    player2Select.option('Super Greedy AI', PLAYER_SUPER_GREEDY);
-    player2Select.option('Minimax AI', PLAYER_MINIMAX);
-    player2Select.option('MCTS AI', PLAYER_MCTS);
+    player2Select.option('Random', PLAYER_RANDOM);
+    player2Select.option('Greedy', PLAYER_GREEDY);
+    player2Select.option('Super Greedy', PLAYER_SUPER_GREEDY);
+    player2Select.option('Defensive', PLAYER_DEFENSIVE);
+    player2Select.option('Adaptive', PLAYER_ADAPTIVE);
+    player2Select.option('Minimax', PLAYER_MINIMAX);
+    player2Select.option('MCTS', PLAYER_MCTS);
     player2Select.changed(() => {
         player2Type = player2Select.value();
         console.log('Player 2 type:', player2Type);
@@ -1371,6 +1782,14 @@ function setup() {
     let playButton = createButton('Auto Step');
     playButton.position(440, 650);
     playButton.mousePressed(autoPlay);
+
+    // Tournament button
+    let tournamentButton = createButton('Tournament');
+    tournamentButton.position(20, 650);
+    tournamentButton.mousePressed(startTournament);
+    tournamentButton.style('background-color', '#4CAF50');
+    tournamentButton.style('color', 'white');
+    tournamentButton.style('font-weight', 'bold');
 
     setupGame();
 
@@ -1388,23 +1807,31 @@ function draw() {
     scheduleAIMove();
 }
 
+function getPlayerTypeLabel(playerType) {
+    const labels = {
+        [PLAYER_HUMAN]: '(Human)',
+        [PLAYER_RANDOM]: '(Random)',
+        [PLAYER_GREEDY]: '(Greedy)',
+        [PLAYER_SUPER_GREEDY]: '(Super Greedy)',
+        [PLAYER_DEFENSIVE]: '(Defensive)',
+        [PLAYER_ADAPTIVE]: '(Adaptive)',
+        [PLAYER_MINIMAX]: '(Minimax)',
+        [PLAYER_MCTS]: '(MCTS)'
+    };
+    return labels[playerType] || '(Unknown)';
+}
+
 function drawPlayerTypes() {
     // Draw player type indicators
     textSize(14);
 
     // Player 1 type
     fill(55, 110, 60);
-    const p1TypeLabel = player1Type === PLAYER_HUMAN ? '(Human)' :
-                        player1Type === PLAYER_GREEDY ? '(Greedy)' :
-                        player1Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' :
-                        player1Type === PLAYER_MINIMAX ? '(Minimax)' : '(MCTS)';
+    const p1TypeLabel = getPlayerTypeLabel(player1Type);
 
     // Player 2 type
     fill(180, 180, 50);
-    const p2TypeLabel = player2Type === PLAYER_HUMAN ? '(Human)' :
-                        player2Type === PLAYER_GREEDY ? '(Greedy)' :
-                        player2Type === PLAYER_SUPER_GREEDY ? '(Super Greedy)' :
-                        player2Type === PLAYER_MINIMAX ? '(Minimax)' : '(MCTS)';
+    const p2TypeLabel = getPlayerTypeLabel(player2Type);
 
     // Show current player indicator with type
     textSize(16);
