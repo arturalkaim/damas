@@ -1,61 +1,71 @@
 /**
- * This is a p5.js sketch that implements the game of checkers.
+ * Checkers AI Arena
  *
- * Features multiple AI algorithms:
- * - Greedy AI: Original algorithm that prioritizes captures
- * - Minimax AI: Look-ahead algorithm with alpha-beta pruning
+ * A checkers game with 7 AI algorithms, round-robin and bracket tournaments.
+ * Code is split across three files:
+ *   - sketch.js  (this file) - Core game, rendering, input
+ *   - ai.js      - AI algorithms and board simulation
+ *   - tournament.js - Tournament systems and visualization
  */
 
-const WIDTH = 600;
-const HEIGHT = 680; // Increased for UI controls
+// ============================================
+// Layout constants
+// ============================================
 
+const WIDTH = 1120;
+const HEIGHT = 740;
 
 const boardWidth = 400;
 const boardHeight = 400;
-const boardX = (WIDTH - boardWidth) / 2;
-const boardY = (HEIGHT - boardHeight) / 2;
+const boardX = 60;
+const boardY = 160;
 const squareWidth = boardWidth / 8;
 const squareHeight = boardHeight / 8;
 
+const vizX = 520;
+const vizY = 70;
+const vizWidth = 570;
+const vizHeight = 450;
+
+// ============================================
+// Game state
+// ============================================
+
 let playerTurn = 1;
+let pieceSelected = null;
 
-const player1Color = [55, 110, 60];
-const player2Color = [200, 200, 55];
+const player1Color = [70, 160, 80];
+const player2Color = [230, 210, 60];
 
-function drawBoard() {
-    // Draw the board in the center of the canvas
-    fill(255, 255, 255);
-    rect(boardX, boardY, boardWidth, boardHeight);
+let player1 = null;
+let player2 = null;
+let game = null;
+let gameOverWinner = null; // null or 1 or 2
 
-    // Draw the squares
-    for (let i = 0; i < 8; i++) {
-        let y = boardY + i * squareHeight;
-        for (let j = 0; j < 8; j++) {
-            let x = boardX + j * squareWidth;
-            if ((i + j) % 2 == 0) {
-                fill(245, 255, 245);
-            } else {
-                fill(200, 210, 200);
-            }
-            rect(x, y, squareWidth, squareHeight);
-        }
-    }
-    //draw row and column labels
-    fill(0, 0, 0);
-    textSize(20);
-    for (let i = 0; i < 8; i++) {
-        let x = boardX + i * squareWidth;
-        let y = boardY - 10;
-        text(i, x + squareWidth / 2, y);
-    }
+// Repetition detection: board hash → occurrence count
+let gameStateHistory = new Map();
 
-    for (let i = 0; i < 8; i++) {
-        let x = boardX - 20;
-        let y = boardY + i * squareHeight;
-        text(i, x, y + squareHeight / 2);
-    }
+function getBoardHash(board, turn) {
+    const pieces = board.pieces
+        .map(p => `${p.x}${p.y}${p.team}${p.king ? 1 : 0}`)
+        .sort()
+        .join(',');
+    return pieces + ':' + turn;
 }
 
+function recordBoardState() {
+    const hash = getBoardHash(game.board, playerTurn);
+    gameStateHistory.set(hash, (gameStateHistory.get(hash) || 0) + 1);
+}
+
+function wouldRepeat(board, turn) {
+    const hash = getBoardHash(board, turn);
+    return (gameStateHistory.get(hash) || 0) >= 2;
+}
+
+// ============================================
+// Core classes
+// ============================================
 
 class Piece {
     constructor(id, x, y, team) {
@@ -69,22 +79,47 @@ class Piece {
     }
 
     draw() {
-        // draw the piece
-        let x = boardX + this.x * squareWidth;
-        let y = boardY + this.y * squareHeight;
+        let cx = boardX + this.x * squareWidth + squareWidth / 2;
+        let cy = boardY + this.y * squareHeight + squareHeight / 2;
+        let r = squareWidth * 0.38;
+
+        push();
         noStroke();
-        if (this.team == 1) {
-            fill(player1Color[0], player1Color[1], player1Color[2])
-        }
-        else {
-            fill(player2Color[0], player2Color[1], player2Color[2])
-        }
-        ellipse(x + squareWidth / 2, y + squareHeight / 2, squareWidth * 0.8, squareHeight * 0.8);
+
+        // Shadow
+        fill(0, 0, 0, 50);
+        ellipse(cx + 2, cy + 3, r * 2, r * 2);
+
+        // Base
+        const c = this.team === 1 ? player1Color : player2Color;
+        fill(c[0], c[1], c[2]);
+        ellipse(cx, cy, r * 2, r * 2);
+
+        // Highlight
+        fill(255, 255, 255, 50);
+        ellipse(cx - r * 0.2, cy - r * 0.2, r * 1.4, r * 1.4);
+
+        // Inner for 3D effect
+        fill(c[0], c[1], c[2]);
+        ellipse(cx, cy, r * 1.6, r * 1.6);
+
+        // Inner ring
+        stroke(255, 255, 255, 30);
+        strokeWeight(1);
+        noFill();
+        ellipse(cx, cy, r * 1.3, r * 1.3);
+
+        // King crown
         if (this.king) {
-            fill(255, 255, 255);
-            textSize(20);
-            text("K", x + squareWidth * 0.4, y + squareHeight * 0.6);
+            noStroke();
+            fill(255, 255, 255, 200);
+            textAlign(CENTER, CENTER);
+            textSize(18);
+            textStyle(BOLD);
+            text('\u265A', cx, cy + 1);
         }
+
+        pop();
     }
 }
 
@@ -95,9 +130,7 @@ class Board {
 
     draw() {
         drawBoard();
-        for (let i = 0; i < this.pieces.length; i++) {
-            this.pieces[i].draw();
-        }
+        for (let piece of this.pieces) piece.draw();
     }
 }
 
@@ -107,9 +140,7 @@ class Game {
     }
 
     draw() {
-        if (this.board != null)
-            this.board.draw();
-        // Player turn indicator is now drawn in drawPlayerTypes()
+        if (this.board) this.board.draw();
     }
 }
 
@@ -121,1122 +152,305 @@ class Player {
 }
 
 // ============================================
-// AI ALGORITHMS
+// Board rendering
 // ============================================
 
-// Player type constants
-const PLAYER_HUMAN = 'human';
-const PLAYER_RANDOM = 'random';
-const PLAYER_GREEDY = 'greedy';
-const PLAYER_SUPER_GREEDY = 'super_greedy';
-const PLAYER_DEFENSIVE = 'defensive';
-const PLAYER_ADAPTIVE = 'adaptive';
-const PLAYER_MINIMAX = 'minimax';
-const PLAYER_MCTS = 'mcts';
+function drawBoard() {
+    push();
 
-// Player type configuration
-let player1Type = PLAYER_HUMAN;
-let player2Type = PLAYER_HUMAN;
+    // Shadow
+    noStroke();
+    fill(0, 0, 0, 40);
+    rect(boardX + 4, boardY + 4, boardWidth, boardHeight, 4);
 
-// AI delay for visualization (ms)
-const AI_MOVE_DELAY = 500;
-let aiMoveScheduled = false;
+    // Border
+    fill(60, 45, 30);
+    rect(boardX - 6, boardY - 6, boardWidth + 12, boardHeight + 12, 6);
 
-/**
- * Clone the board state for simulation
- */
-function cloneBoard(board) {
-    const clonedPieces = board.pieces.map(p => {
-        const piece = new Piece(p.id, p.x, p.y, p.team);
-        piece.x0 = p.x0;
-        piece.y0 = p.y0;
-        piece.king = p.king;
-        return piece;
-    });
-    return new Board(clonedPieces);
+    // Squares
+    for (let i = 0; i < 8; i++) {
+        let y = boardY + i * squareHeight;
+        for (let j = 0; j < 8; j++) {
+            let x = boardX + j * squareWidth;
+            fill((i + j) % 2 === 0 ? [220, 210, 190] : [120, 90, 65]);
+            noStroke();
+            rect(x, y, squareWidth, squareHeight);
+        }
+    }
+
+    // Labels
+    textAlign(CENTER, CENTER);
+    textSize(11);
+    fill(160, 170, 180);
+    const cols = 'abcdefgh';
+    for (let i = 0; i < 8; i++) {
+        text(cols[i], boardX + i * squareWidth + squareWidth / 2, boardY - 14);
+        text(8 - i, boardX - 14, boardY + i * squareHeight + squareHeight / 2);
+    }
+
+    pop();
 }
 
-/**
- * Find available moves for a piece on a given board state
- */
-function findAvailableMovesOnBoard(piece, board) {
+function teamHasCapture(team) {
+    for (let p of game.board.pieces.filter(p => p.team === team)) {
+        const saved = [p.x0, p.y0];
+        p.x0 = p.x; p.y0 = p.y;
+        const moves = findAvailableMoves(p);
+        p.x0 = saved[0]; p.y0 = saved[1];
+        if (moves.some(m => piceKilled(p, m[0], m[1]))) return true;
+    }
+    return false;
+}
+
+function drawAvailableMoves() {
+    if (!pieceSelected) return;
+    let moves = findAvailableMoves(pieceSelected);
+
+    // Mandatory capture: only show captures if any exist for this team
+    if (teamHasCapture(pieceSelected.team)) {
+        moves = moves.filter(m => piceKilled(pieceSelected, m[0], m[1]));
+    }
+
+    for (let [x, y] of moves) {
+        let cx = boardX + x * squareWidth + squareWidth / 2;
+        let cy = boardY + y * squareHeight + squareHeight / 2;
+        let pulse = 0.7 + 0.3 * sin(frameCount * 0.1);
+        noStroke();
+        fill(100, 220, 120, 120 * pulse);
+        ellipse(cx, cy, squareWidth * 0.35, squareHeight * 0.35);
+        fill(100, 220, 120, 60 * pulse);
+        ellipse(cx, cy, squareWidth * 0.55, squareHeight * 0.55);
+    }
+
+    // Highlight selected piece
+    let sx = boardX + pieceSelected.x0 * squareWidth;
+    let sy = boardY + pieceSelected.y0 * squareHeight;
+    noFill();
+    stroke(100, 255, 130, 180);
+    strokeWeight(2.5);
+    rect(sx + 2, sy + 2, squareWidth - 4, squareHeight - 4, 3);
+    noStroke();
+}
+
+function drawPlayerInfo() {
+    push();
+    const panelY = boardY - 42;
+    const panelH = 36;
+    const p1Label = AI_NAMES[player1Type] || 'Human';
+    const p2Label = AI_NAMES[player2Type] || 'Human';
+
+    textAlign(LEFT, CENTER);
+    textSize(14);
+
+    // Player 1
+    const p1Active = playerTurn === 1;
+    if (p1Active) {
+        fill(player1Color[0], player1Color[1], player1Color[2], 30);
+        noStroke();
+        rect(boardX - 6, panelY, boardWidth / 2 + 3, panelH, 6, 0, 0, 6);
+    }
+    fill(p1Active ? 255 : 140);
+    noStroke();
+    ellipse(boardX + 14, panelY + panelH / 2, 16, 16);
+    fill(player1Color[0], player1Color[1], player1Color[2]);
+    ellipse(boardX + 14, panelY + panelH / 2, 12, 12);
+    fill(p1Active ? 230 : 130, p1Active ? 240 : 140, p1Active ? 230 : 130);
+    textStyle(p1Active ? BOLD : NORMAL);
+    text(`Green: ${p1Label}`, boardX + 28, panelY + panelH / 2);
+    if (p1Active) { fill(100, 220, 120); textSize(10); text('\u25B6', boardX + 3, panelY + panelH / 2 - 10); }
+
+    // Player 2
+    const p2Active = playerTurn === 2;
+    const p2X = boardX + boardWidth / 2 + 3;
+    if (p2Active) {
+        fill(player2Color[0], player2Color[1], player2Color[2], 25);
+        noStroke();
+        rect(p2X, panelY, boardWidth / 2 + 3, panelH, 0, 6, 6, 0);
+    }
+    fill(p2Active ? 255 : 140);
+    noStroke();
+    ellipse(p2X + 14, panelY + panelH / 2, 16, 16);
+    fill(player2Color[0], player2Color[1], player2Color[2]);
+    ellipse(p2X + 14, panelY + panelH / 2, 12, 12);
+    fill(p2Active ? 230 : 130, p2Active ? 240 : 140, p2Active ? 230 : 130);
+    textStyle(p2Active ? BOLD : NORMAL);
+    textSize(14);
+    text(`Gold: ${p2Label}`, p2X + 28, panelY + panelH / 2);
+    if (p2Active) { fill(230, 220, 80); textSize(10); text('\u25B6', p2X + 3, panelY + panelH / 2 - 10); }
+
+    pop();
+}
+
+function drawPieceCounts() {
+    if (!game.board) return;
+    push();
+    const p1Count = game.board.pieces.filter(p => p.team === 1).length;
+    const p2Count = game.board.pieces.filter(p => p.team === 2).length;
+    textAlign(CENTER, CENTER);
+    textSize(12);
+    fill(140, 155, 140);
+    const cy = boardY + boardHeight + 18;
+    text(`Green: ${p1Count} pieces`, boardX + boardWidth * 0.25, cy);
+    text(`Gold: ${p2Count} pieces`, boardX + boardWidth * 0.75, cy);
+    pop();
+}
+
+// ============================================
+// Game setup
+// ============================================
+
+function setupGame() {
+    let pieces = [];
+    let id = 0;
+
+    // Team 1 (rows 0-2)
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 4; col++) {
+            let x = col * 2 + (row % 2 === 0 ? 0 : 1);
+            pieces.push(new Piece(id++, x, row, 1));
+        }
+    }
+
+    // Team 2 (rows 5-7)
+    for (let row = 5; row < 8; row++) {
+        for (let col = 0; col < 4; col++) {
+            let x = col * 2 + (row % 2 === 0 ? 0 : 1);
+            pieces.push(new Piece(id++, x, row, 2));
+        }
+    }
+
+    game = new Game(new Board(pieces));
+    playerTurn = 1;
+}
+
+function resetGame() {
+    aiMoveScheduled = false;
+    pieceSelected = null;
+    gameOverWinner = null;
+    gameStateHistory = new Map();
+    setupGame();
+}
+
+// ============================================
+// Move logic
+// ============================================
+
+function findAvailableMoves(piece) {
     let moves = [];
     let x = piece.x0;
     let y = piece.y0;
 
-    const directions = [
-        [1, -1], [2, -2],   // NE
-        [-1, -1], [-2, -2], // NW
-        [1, 1], [2, 2],     // SE
-        [-1, 1], [-2, 2]    // SW
-    ];
-
-    for (let [dx, dy] of directions) {
-        if (validJumpOnBoard(piece, x + dx, y + dy, board)) {
-            moves.push([x + dx, y + dy]);
-        }
+    const dirs = [[1,-1],[2,-2],[-1,-1],[-2,-2],[1,1],[2,2],[-1,1],[-2,2]];
+    for (let [dx, dy] of dirs) {
+        if (validJump(piece, x + dx, y + dy)) moves.push([x + dx, y + dy]);
     }
 
     if (piece.king) {
         for (let i = -7; i <= 7; i++) {
             if (i === 0) continue;
-            if (validJumpOnBoard(piece, x + i, y + i, board)) {
-                moves.push([x + i, y + i]);
-            }
-            if (validJumpOnBoard(piece, x + i, y - i, board)) {
-                moves.push([x + i, y - i]);
-            }
+            if (validJump(piece, x + i, y + i)) moves.push([x + i, y + i]);
+            if (validJump(piece, x + i, y - i)) moves.push([x + i, y - i]);
         }
     }
 
     return moves;
 }
 
-/**
- * Validate a jump on a given board state
- */
-function validJumpOnBoard(piece, x, y, board) {
+function validJump(piece, x, y) {
     if (x < 0 || x > 7 || y < 0 || y > 7) return false;
     if (Math.abs(piece.x0 - x) !== Math.abs(piece.y0 - y)) return false;
     if (piece.x0 === x && piece.y0 === y) return false;
     if (Math.abs(piece.x0 - x) > 2 && !piece.king) return false;
 
-    let otherPiece = board.pieces.find(p => p.x === x && p.y === y && p.id !== piece.id);
-    if (otherPiece != null) return false;
+    if (game.board.pieces.find(p => p.x === x && p.y === y && p.id !== piece.id)) return false;
 
-    otherPiece = board.pieces.find(p => p.x === (piece.x0 + x) / 2 && p.y === (piece.y0 + y) / 2 && p.team === piece.team);
-    if (otherPiece != null) return false;
+    let midPiece = game.board.pieces.find(p => p.x === (piece.x0 + x) / 2 && p.y === (piece.y0 + y) / 2 && p.team === piece.team);
+    if (midPiece) return false;
 
     if (Math.abs(piece.x0 - x) === 2 && !piece.king) {
-        otherPiece = board.pieces.find(p => p.x === (piece.x0 + x) / 2 && p.y === (piece.y0 + y) / 2 && p.team !== piece.team);
-        if (otherPiece == null) return false;
+        let enemyMid = game.board.pieces.find(p => p.x === (piece.x0 + x) / 2 && p.y === (piece.y0 + y) / 2 && p.team !== piece.team);
+        if (!enemyMid) return false;
     }
 
     return true;
 }
 
-/**
- * Check if a move results in a capture on a given board
- */
-function pieceKilledOnBoard(piece, x, y, board) {
+function piceKilled(piece, x, y) {
     if (Math.abs(piece.x0 - x) > 1) {
         const startx = Math.min(piece.x0, x);
         const endx = Math.max(piece.x0, x);
         const starty = Math.min(piece.y0, y);
         const endy = Math.max(piece.y0, y);
         for (let xi = startx + 1, yi = starty + 1; xi < endx && yi < endy; xi++, yi++) {
-            let otherPiece = board.pieces.find(p => p.x === xi && p.y === yi && p.team !== piece.team);
-            if (otherPiece) return otherPiece;
+            let other = game.board.pieces.find(p => p.x === xi && p.y === yi && p.team !== piece.team);
+            if (other) return other;
         }
     }
-    return null;
-}
-
-/**
- * Apply a move on a cloned board and return new board state
- */
-function applyMoveOnBoard(board, piece, x, y) {
-    const newBoard = cloneBoard(board);
-    const newPiece = newBoard.pieces.find(p => p.id === piece.id);
-
-    newPiece.x = x;
-    newPiece.y = y;
-
-    const killed = pieceKilledOnBoard(newPiece, x, y, newBoard);
-    if (killed) {
-        newBoard.pieces = newBoard.pieces.filter(p => p.id !== killed.id);
-    }
-
-    newPiece.x0 = x;
-    newPiece.y0 = y;
-
-    // King promotion
-    if (newPiece.team === 1 && newPiece.y === 7) newPiece.king = true;
-    if (newPiece.team === 2 && newPiece.y === 0) newPiece.king = true;
-
-    return { board: newBoard, captured: killed !== null };
-}
-
-/**
- * Get all possible moves for a team on a board
- */
-function getAllMovesForTeam(board, team) {
-    const moves = [];
-    const pieces = board.pieces.filter(p => p.team === team);
-
-    for (let piece of pieces) {
-        const pieceMoves = findAvailableMovesOnBoard(piece, board);
-        for (let move of pieceMoves) {
-            moves.push({ piece: piece, move: move });
-        }
-    }
-
-    return moves;
-}
-
-/**
- * Evaluate board state for minimax
- * Positive = good for team 1, Negative = good for team 2
- */
-function evaluateBoard(board) {
-    let score = 0;
-
-    for (let piece of board.pieces) {
-        let pieceValue = 10; // Base piece value
-
-        // King bonus
-        if (piece.king) pieceValue += 5;
-
-        // Advancement bonus (closer to promotion)
-        if (!piece.king) {
-            if (piece.team === 1) {
-                pieceValue += piece.y * 0.5; // Team 1 advances down
-            } else {
-                pieceValue += (7 - piece.y) * 0.5; // Team 2 advances up
-            }
-        }
-
-        // Center control bonus
-        const centerX = Math.abs(3.5 - piece.x);
-        const centerY = Math.abs(3.5 - piece.y);
-        pieceValue += (4 - centerX - centerY) * 0.3;
-
-        // Add or subtract based on team
-        if (piece.team === 1) {
-            score += pieceValue;
-        } else {
-            score -= pieceValue;
-        }
-    }
-
-    return score;
-}
-
-/**
- * Check if game is over on a board state
- */
-function isGameOver(board) {
-    const team1Pieces = board.pieces.filter(p => p.team === 1);
-    const team2Pieces = board.pieces.filter(p => p.team === 2);
-
-    if (team1Pieces.length === 0) return { over: true, winner: 2 };
-    if (team2Pieces.length === 0) return { over: true, winner: 1 };
-
-    const team1Moves = getAllMovesForTeam(board, 1);
-    const team2Moves = getAllMovesForTeam(board, 2);
-
-    if (team1Moves.length === 0) return { over: true, winner: 2 };
-    if (team2Moves.length === 0) return { over: true, winner: 1 };
-
-    return { over: false, winner: null };
-}
-
-/**
- * Minimax algorithm with alpha-beta pruning
- */
-function minimax(board, depth, alpha, beta, maximizingPlayer, currentTeam) {
-    const gameStatus = isGameOver(board);
-
-    if (gameStatus.over) {
-        // Return large value for wins
-        return gameStatus.winner === 1 ? 1000 : -1000;
-    }
-
-    if (depth === 0) {
-        return evaluateBoard(board);
-    }
-
-    const moves = getAllMovesForTeam(board, currentTeam);
-
-    if (maximizingPlayer) {
-        let maxEval = -Infinity;
-        for (let { piece, move } of moves) {
-            const result = applyMoveOnBoard(board, piece, move[0], move[1]);
-            const nextTeam = currentTeam === 1 ? 2 : 1;
-            const evalScore = minimax(result.board, depth - 1, alpha, beta, false, nextTeam);
-            maxEval = Math.max(maxEval, evalScore);
-            alpha = Math.max(alpha, evalScore);
-            if (beta <= alpha) break; // Alpha-beta pruning
-        }
-        return maxEval;
-    } else {
-        let minEval = Infinity;
-        for (let { piece, move } of moves) {
-            const result = applyMoveOnBoard(board, piece, move[0], move[1]);
-            const nextTeam = currentTeam === 1 ? 2 : 1;
-            const evalScore = minimax(result.board, depth - 1, alpha, beta, true, nextTeam);
-            minEval = Math.min(minEval, evalScore);
-            beta = Math.min(beta, evalScore);
-            if (beta <= alpha) break; // Alpha-beta pruning
-        }
-        return minEval;
-    }
-}
-
-/**
- * GREEDY AI - Original algorithm
- * Prioritizes captures, random selection among equals
- */
-function greedyAI(board, team) {
-    const pieces = board.pieces.filter(p => p.team === team);
-    let allMoves = [];
-
-    for (let piece of pieces) {
-        const moves = findAvailableMovesOnBoard(piece, board);
-        for (let move of moves) {
-            const length = Math.abs(piece.x0 - move[0]);
-            allMoves.push({ piece: piece, move: move, length: length });
-        }
-    }
-
-    if (allMoves.length === 0) return null;
-
-    // Sort by length (longer = capture)
-    allMoves.sort((a, b) => b.length - a.length);
-
-    // Filter to best moves
-    const maxLength = allMoves[0].length;
-    const bestMoves = allMoves.filter(m => m.length === maxLength);
-
-    // Random selection among equally good moves
-    return bestMoves[Math.floor(Math.random() * bestMoves.length)];
-}
-
-/**
- * RANDOM AI - Pure random baseline
- * Picks any legal move with equal probability
- * Useful as a baseline to measure other AI performance
- */
-function randomAI(board, team) {
-    const moves = getAllMovesForTeam(board, team);
-    if (moves.length === 0) return null;
-
-    const chosen = moves[Math.floor(Math.random() * moves.length)];
-    console.log(`Random AI: picked move randomly from ${moves.length} options`);
-    return chosen;
-}
-
-/**
- * DEFENSIVE AI - Safety-first philosophy
- * Prioritizes:
- * 1. Not losing pieces (highest priority)
- * 2. Blocking opponent attacks
- * 3. Capturing only when safe
- * 4. Retreating to back rank
- */
-function defensiveAI(board, team) {
-    const pieces = board.pieces.filter(p => p.team === team);
-    let allMoves = [];
-
-    for (let piece of pieces) {
-        const moves = findAvailableMovesOnBoard(piece, board);
-        for (let move of moves) {
-            const isCapture = Math.abs(piece.x0 - move[0]) === 2;
-
-            // Check if current position is under threat
-            const currentlyThreatened = !isSquareSafe(board, piece.x, piece.y, team);
-
-            // Check if destination is safe
-            const destinationSafe = isSquareSafe(board, move[0], move[1], team);
-
-            // Simulate move and check if it exposes other pieces
-            const simResult = applyMoveOnBoard(board, piece, move[0], move[1]);
-            let exposedPieces = 0;
-            for (let p of simResult.board.pieces.filter(p => p.team === team)) {
-                if (!isSquareSafe(simResult.board, p.x, p.y, team)) {
-                    exposedPieces++;
-                }
-            }
-
-            // Back rank bonus (safer positions)
-            const backRankBonus = team === 1 ? (7 - move[1]) : move[1];
-
-            // Calculate defensive score
-            let score = 0;
-            score += currentlyThreatened && destinationSafe ? 500 : 0;  // Escape danger
-            score += destinationSafe ? 200 : -300;                       // Stay safe
-            score -= exposedPieces * 100;                                // Don't expose teammates
-            score += isCapture && destinationSafe ? 150 : 0;            // Safe captures only
-            score += backRankBonus * 10;                                 // Prefer back positions
-
-            allMoves.push({
-                piece: piece,
-                move: move,
-                score: score,
-                safe: destinationSafe,
-                escaping: currentlyThreatened && destinationSafe
-            });
-        }
-    }
-
-    if (allMoves.length === 0) return null;
-
-    allMoves.sort((a, b) => b.score - a.score);
-
-    const maxScore = allMoves[0].score;
-    const bestMoves = allMoves.filter(m => m.score >= maxScore - 50);
-    const chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
-
-    console.log(`Defensive AI: score=${chosen.score}, safe=${chosen.safe}, escaping=${chosen.escaping}`);
-    return chosen;
-}
-
-/**
- * ADAPTIVE AI - Changes strategy based on game state
- * - When ahead: plays defensively (protect lead)
- * - When behind: plays aggressively (take risks)
- * - When even: plays positionally (control center, advance)
- */
-function adaptiveAI(board, team) {
-    const myPieces = board.pieces.filter(p => p.team === team);
-    const oppPieces = board.pieces.filter(p => p.team !== team);
-
-    // Calculate material advantage
-    const myMaterial = myPieces.reduce((sum, p) => sum + (p.king ? 15 : 10), 0);
-    const oppMaterial = oppPieces.reduce((sum, p) => sum + (p.king ? 15 : 10), 0);
-    const advantage = myMaterial - oppMaterial;
-
-    // Determine strategy
-    let strategy;
-    if (advantage >= 20) {
-        strategy = 'defensive';  // Protect the lead
-    } else if (advantage <= -20) {
-        strategy = 'aggressive'; // Take risks to catch up
-    } else {
-        strategy = 'positional'; // Focus on board control
-    }
-
-    const pieces = board.pieces.filter(p => p.team === team);
-    let allMoves = [];
-
-    for (let piece of pieces) {
-        const moves = findAvailableMovesOnBoard(piece, board);
-        for (let move of moves) {
-            const isCapture = Math.abs(piece.x0 - move[0]) === 2;
-            const safe = isSquareSafe(board, move[0], move[1], team);
-
-            // Chain capture potential
-            let chainCaptures = 0;
-            if (isCapture) {
-                chainCaptures = countChainCaptures(board, piece, move[0], move[1]);
-            }
-
-            // Advancement (toward promotion)
-            const advancement = team === 1 ? move[1] : (7 - move[1]);
-
-            // Center control
-            const centerBonus = 4 - Math.abs(3.5 - move[0]) + 4 - Math.abs(3.5 - move[1]);
-
-            let score = 0;
-
-            if (strategy === 'aggressive') {
-                // Aggressive: prioritize captures and advancement, ignore safety
-                score += chainCaptures * 200;
-                score += isCapture ? 150 : 0;
-                score += advancement * 20;
-                score += safe ? 30 : 0;  // Safety is low priority
-                console.log
-            } else if (strategy === 'defensive') {
-                // Defensive: prioritize safety, only safe captures
-                score += safe ? 300 : -200;
-                score += (isCapture && safe) ? 100 : 0;
-                score -= advancement * 5;  // Don't overextend
-                score += (7 - advancement) * 10;  // Prefer back positions
-            } else {
-                // Positional: balanced approach
-                score += chainCaptures * 100;
-                score += safe ? 150 : -100;
-                score += centerBonus * 15;
-                score += advancement * 10;
-            }
-
-            allMoves.push({
-                piece: piece,
-                move: move,
-                score: score,
-                strategy: strategy
-            });
-        }
-    }
-
-    if (allMoves.length === 0) return null;
-
-    allMoves.sort((a, b) => b.score - a.score);
-
-    const maxScore = allMoves[0].score;
-    const bestMoves = allMoves.filter(m => m.score >= maxScore * 0.9);
-    const chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
-
-    console.log(`Adaptive AI [${strategy.toUpperCase()}]: advantage=${advantage}, score=${chosen.score}`);
-    return chosen;
-}
-
-/**
- * Count chain captures possible from a position
- */
-function countChainCaptures(board, piece, x, y, depth = 0) {
-    const result = applyMoveOnBoard(board, piece, x, y);
-    if (!result.captured) return depth;
-
-    const newPiece = result.board.pieces.find(p => p.id === piece.id);
-    if (!newPiece) return depth + 1;
-
-    // Find additional capture moves
-    const captureMoves = findAvailableMovesOnBoard(newPiece, result.board)
-        .filter(m => Math.abs(newPiece.x0 - m[0]) === 2);
-
-    if (captureMoves.length === 0) return depth + 1;
-
-    // Recursively count best chain
-    let maxCaptures = depth + 1;
-    for (let move of captureMoves) {
-        const captures = countChainCaptures(result.board, newPiece, move[0], move[1], depth + 1);
-        maxCaptures = Math.max(maxCaptures, captures);
-    }
-    return maxCaptures;
-}
-
-/**
- * Check if a square is safe (opponent can't capture piece there next turn)
- */
-function isSquareSafe(board, x, y, team) {
-    const opponent = team === 1 ? 2 : 1;
-    const opponentPieces = board.pieces.filter(p => p.team === opponent);
-
-    for (let piece of opponentPieces) {
-        // Check if opponent can jump to capture a piece at (x, y)
-        const jumpMoves = [
-            [piece.x + 2, piece.y + 2],
-            [piece.x + 2, piece.y - 2],
-            [piece.x - 2, piece.y + 2],
-            [piece.x - 2, piece.y - 2]
-        ];
-
-        for (let [jx, jy] of jumpMoves) {
-            // Check if the jump would land on the other side of our position
-            const midX = (piece.x + jx) / 2;
-            const midY = (piece.y + jy) / 2;
-
-            if (midX === x && midY === y) {
-                // Check if this jump would be valid
-                if (jx >= 0 && jx <= 7 && jy >= 0 && jy <= 7) {
-                    // Check destination is empty
-                    const destOccupied = board.pieces.some(p => p.x === jx && p.y === jy);
-                    if (!destOccupied) {
-                        return false; // Not safe - opponent can capture here
-                    }
-                }
-            }
-        }
-    }
-    return true;
-}
-
-/**
- * SUPER GREEDY AI - Enhanced greedy with better heuristics
- * Features:
- * - Chain capture simulation (picks move with most total captures)
- * - Safety check (avoids moves that allow opponent to capture)
- * - Advancement bonus (prefers moving toward promotion)
- * - Center control bonus (prefers center squares)
- */
-function superGreedyAI(board, team) {
-    const pieces = board.pieces.filter(p => p.team === team);
-    let allMoves = [];
-
-    for (let piece of pieces) {
-        const moves = findAvailableMovesOnBoard(piece, board);
-        for (let move of moves) {
-            const isCapture = Math.abs(piece.x0 - move[0]) === 2;
-
-            // Calculate chain captures
-            let totalCaptures = 0;
-            if (isCapture) {
-                totalCaptures = countChainCaptures(board, piece, move[0], move[1]);
-            }
-
-            // Check safety
-            const safe = isSquareSafe(board, move[0], move[1], team);
-
-            // Advancement bonus (0-7 scale)
-            let advancement = 0;
-            if (!piece.king) {
-                if (team === 1) {
-                    advancement = move[1]; // Team 1 advances down (higher y)
-                } else {
-                    advancement = 7 - move[1]; // Team 2 advances up (lower y)
-                }
-            }
-
-            // Center control bonus (0-4 scale)
-            const centerX = 4 - Math.abs(3.5 - move[0]);
-            const centerY = 4 - Math.abs(3.5 - move[1]);
-            const centerBonus = (centerX + centerY) / 2;
-
-            // Calculate composite score
-            // Priority: captures > safety > advancement > center
-            let score = 0;
-            score += totalCaptures * 1000;      // Captures are most important
-            score += safe ? 100 : 0;            // Safety bonus
-            score += advancement * 10;          // Advancement
-            score += centerBonus * 1;           // Center control
-
-            allMoves.push({
-                piece: piece,
-                move: move,
-                score: score,
-                captures: totalCaptures,
-                safe: safe
-            });
-        }
-    }
-
-    if (allMoves.length === 0) return null;
-
-    // Sort by score descending
-    allMoves.sort((a, b) => b.score - a.score);
-
-    // Filter to best moves (within 10% of top score to add some variety)
-    const maxScore = allMoves[0].score;
-    const threshold = maxScore > 0 ? maxScore * 0.9 : maxScore - 10;
-    const bestMoves = allMoves.filter(m => m.score >= threshold);
-
-    // Random selection among top moves
-    const chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
-
-    console.log(`Super Greedy: score=${chosen.score}, captures=${chosen.captures}, safe=${chosen.safe}`);
-    return chosen;
-}
-
-/**
- * MINIMAX AI - Look-ahead algorithm
- * Uses minimax with alpha-beta pruning
- */
-function minimaxAI(board, team, depth = 4) {
-    const moves = getAllMovesForTeam(board, team);
-
-    if (moves.length === 0) return null;
-
-    let bestMove = null;
-    let bestScore = team === 1 ? -Infinity : Infinity;
-
-    for (let { piece, move } of moves) {
-        const result = applyMoveOnBoard(board, piece, move[0], move[1]);
-        const nextTeam = team === 1 ? 2 : 1;
-        const isMaximizing = team !== 1; // Next player's perspective
-        const score = minimax(result.board, depth - 1, -Infinity, Infinity, isMaximizing, nextTeam);
-
-        if (team === 1) {
-            if (score > bestScore) {
-                bestScore = score;
-                bestMove = { piece: piece, move: move };
-            }
-        } else {
-            if (score < bestScore) {
-                bestScore = score;
-                bestMove = { piece: piece, move: move };
-            }
-        }
-    }
-
-    console.log(`Minimax chose move with score: ${bestScore}`);
-    return bestMove;
-}
-
-// ============================================
-// MONTE CARLO TREE SEARCH (MCTS)
-// ============================================
-
-/**
- * MCTS Node - represents a game state in the search tree
- */
-class MCTSNode {
-    constructor(board, team, parent = null, move = null, piece = null) {
-        this.board = board;
-        this.team = team;           // Team to play from this state
-        this.parent = parent;
-        this.move = move;           // Move that led to this state
-        this.piece = piece;         // Piece that made the move
-        this.children = [];
-        this.visits = 0;
-        this.wins = 0;
-        this.untriedMoves = null;   // Lazy initialization
-    }
-
-    /**
-     * Get untried moves (lazy initialization)
-     */
-    getUntriedMoves() {
-        if (this.untriedMoves === null) {
-            this.untriedMoves = getAllMovesForTeam(this.board, this.team);
-        }
-        return this.untriedMoves;
-    }
-
-    /**
-     * UCB1 formula for selection
-     * Balances exploitation (high win rate) vs exploration (less visited)
-     */
-    ucb1(explorationParam = 1.41) {
-        if (this.visits === 0) return Infinity;
-        return (this.wins / this.visits) +
-               explorationParam * Math.sqrt(Math.log(this.parent.visits) / this.visits);
-    }
-
-    /**
-     * Select best child using UCB1
-     */
-    selectChild() {
-        let bestChild = null;
-        let bestUCB = -Infinity;
-
-        for (let child of this.children) {
-            const ucb = child.ucb1();
-            if (ucb > bestUCB) {
-                bestUCB = ucb;
-                bestChild = child;
-            }
-        }
-        return bestChild;
-    }
-
-    /**
-     * Expand node by trying one untried move
-     */
-    expand() {
-        const untriedMoves = this.getUntriedMoves();
-        if (untriedMoves.length === 0) return null;
-
-        // Pick random untried move
-        const idx = Math.floor(Math.random() * untriedMoves.length);
-        const { piece, move } = untriedMoves.splice(idx, 1)[0];
-
-        // Apply move to get new board state
-        const result = applyMoveOnBoard(this.board, piece, move[0], move[1]);
-        const nextTeam = this.team === 1 ? 2 : 1;
-
-        // Create child node
-        const child = new MCTSNode(result.board, nextTeam, this, move, piece);
-        this.children.push(child);
-
-        return child;
-    }
-
-    /**
-     * Check if node is fully expanded
-     */
-    isFullyExpanded() {
-        return this.getUntriedMoves().length === 0;
-    }
-
-    /**
-     * Check if node is terminal (game over)
-     */
-    isTerminal() {
-        const status = isGameOver(this.board);
-        return status.over;
-    }
-}
-
-/**
- * Run random simulation (playout) from a board state
- * Returns: 1 if team1 wins, 0 if team2 wins, 0.5 for draw
- */
-function mctsSimulate(board, currentTeam, maxMoves = 100) {
-    let simBoard = cloneBoard(board);
-    let team = currentTeam;
-    let moveCount = 0;
-
-    while (moveCount < maxMoves) {
-        const status = isGameOver(simBoard);
-        if (status.over) {
-            return status.winner === 1 ? 1 : 0;
-        }
-
-        const moves = getAllMovesForTeam(simBoard, team);
-        if (moves.length === 0) {
-            // No moves = loss for current team
-            return team === 1 ? 0 : 1;
-        }
-
-        // Random move selection (pure Monte Carlo)
-        const { piece, move } = moves[Math.floor(Math.random() * moves.length)];
-        const result = applyMoveOnBoard(simBoard, piece, move[0], move[1]);
-        simBoard = result.board;
-
-        team = team === 1 ? 2 : 1;
-        moveCount++;
-    }
-
-    // If max moves reached, evaluate board position
-    const score = evaluateBoard(simBoard);
-    return score > 0 ? 1 : (score < 0 ? 0 : 0.5);
-}
-
-/**
- * Backpropagate simulation result up the tree
- */
-function mctsBackpropagate(node, result, rootTeam) {
-    while (node !== null) {
-        node.visits++;
-        // Win is from perspective of root team
-        // But each node alternates team, so we need to flip
-        const nodeTeam = node.parent ? node.parent.team : rootTeam;
-        if (nodeTeam === 1) {
-            node.wins += result;
-        } else {
-            node.wins += (1 - result);
-        }
-        node = node.parent;
-    }
-}
-
-/**
- * MCTS AI - Monte Carlo Tree Search
- * Uses random simulations to evaluate moves
- *
- * Parameters:
- * - iterations: number of simulations to run (more = better but slower)
- */
-function mctsAI(board, team, iterations = 1000) {
-    const root = new MCTSNode(board, team);
-
-    // Check for immediate game over
-    if (root.isTerminal()) return null;
-
-    const moves = getAllMovesForTeam(board, team);
-    if (moves.length === 0) return null;
-    if (moves.length === 1) {
-        // Only one move available
-        return { piece: moves[0].piece, move: moves[0].move };
-    }
-
-    // Run MCTS iterations
-    for (let i = 0; i < iterations; i++) {
-        let node = root;
-
-        // 1. SELECTION - traverse tree using UCB1
-        while (!node.isTerminal() && node.isFullyExpanded() && node.children.length > 0) {
-            node = node.selectChild();
-        }
-
-        // 2. EXPANSION - add a new child node
-        if (!node.isTerminal() && !node.isFullyExpanded()) {
-            node = node.expand();
-        }
-
-        // 3. SIMULATION - random playout from this node
-        let result;
-        if (node && !node.isTerminal()) {
-            result = mctsSimulate(node.board, node.team);
-        } else if (node) {
-            // Terminal node - get actual result
-            const status = isGameOver(node.board);
-            result = status.winner === 1 ? 1 : 0;
-        } else {
-            continue;
-        }
-
-        // 4. BACKPROPAGATION - update statistics
-        mctsBackpropagate(node, result, team);
-    }
-
-    // Select best move (most visited child)
-    let bestChild = null;
-    let bestVisits = -1;
-
-    for (let child of root.children) {
-        if (child.visits > bestVisits) {
-            bestVisits = child.visits;
-            bestChild = child;
-        }
-    }
-
-    if (bestChild) {
-        const winRate = (bestChild.wins / bestChild.visits * 100).toFixed(1);
-        console.log(`MCTS: ${iterations} iterations, best move visited ${bestVisits} times, win rate ${winRate}%`);
-
-        // Find the original piece in the current board
-        const originalPiece = board.pieces.find(p => p.id === bestChild.piece.id);
-        return { piece: originalPiece, move: bestChild.move };
-    }
-
-    return null;
-}
-
-// ============================================
-// END MCTS
-// ============================================
-
-// ============================================
-// TOURNAMENT SYSTEM
-// ============================================
-
-// Tournament state
-let tournamentRunning = false;
-let tournamentResults = {};
-let tournamentMatchups = [];
-let currentMatchup = 0;
-let gamesPerMatchup = 2;  // Each pair plays 2 games (swap sides)
-let currentGameInMatchup = 0;
-let tournamentMoveCount = 0;
-const MAX_TOURNAMENT_MOVES = 200;  // Prevent infinite games
-
-// All AI types for tournament (exclude human)
-const AI_TYPES = [
-    PLAYER_RANDOM,
-    PLAYER_GREEDY,
-    PLAYER_SUPER_GREEDY,
-    PLAYER_DEFENSIVE,
-    PLAYER_ADAPTIVE,
-    PLAYER_MINIMAX,
-    PLAYER_MCTS
-];
-
-const AI_NAMES = {
-    [PLAYER_RANDOM]: 'Random',
-    [PLAYER_GREEDY]: 'Greedy',
-    [PLAYER_SUPER_GREEDY]: 'Super Greedy',
-    [PLAYER_DEFENSIVE]: 'Defensive',
-    [PLAYER_ADAPTIVE]: 'Adaptive',
-    [PLAYER_MINIMAX]: 'Minimax',
-    [PLAYER_MCTS]: 'MCTS'
-};
-
-/**
- * Initialize tournament
- */
-function initTournament() {
-    tournamentResults = {};
-    tournamentMatchups = [];
-
-    // Initialize results for each AI
-    for (let ai of AI_TYPES) {
-        tournamentResults[ai] = { wins: 0, losses: 0, draws: 0, points: 0 };
-    }
-
-    // Create all matchups (round-robin)
-    for (let i = 0; i < AI_TYPES.length; i++) {
-        for (let j = i + 1; j < AI_TYPES.length; j++) {
-            tournamentMatchups.push([AI_TYPES[i], AI_TYPES[j]]);
-        }
-    }
-
-    currentMatchup = 0;
-    currentGameInMatchup = 0;
-    console.log(`Tournament initialized: ${tournamentMatchups.length} matchups, ${gamesPerMatchup} games each`);
-}
-
-/**
- * Run a single tournament game (non-blocking, uses game loop)
- */
-function runTournamentGame() {
-    if (!tournamentRunning) return;
-
-    const matchup = tournamentMatchups[currentMatchup];
-    // Alternate sides
-    if (currentGameInMatchup === 0) {
-        player1Type = matchup[0];
-        player2Type = matchup[1];
-    } else {
-        player1Type = matchup[1];
-        player2Type = matchup[0];
-    }
-
-    tournamentMoveCount = 0;
-    resetGame();
-
-    console.log(`\n=== Match ${currentMatchup + 1}/${tournamentMatchups.length}, Game ${currentGameInMatchup + 1}/${gamesPerMatchup} ===`);
-    console.log(`${AI_NAMES[player1Type]} vs ${AI_NAMES[player2Type]}`);
-}
-
-/**
- * Record tournament game result
- */
-function recordTournamentResult(winner) {
-    const matchup = tournamentMatchups[currentMatchup];
-    let p1Type, p2Type;
-
-    if (currentGameInMatchup === 0) {
-        p1Type = matchup[0];
-        p2Type = matchup[1];
-    } else {
-        p1Type = matchup[1];
-        p2Type = matchup[0];
-    }
-
-    if (winner === 0) {
-        // Draw
-        tournamentResults[p1Type].draws++;
-        tournamentResults[p2Type].draws++;
-        tournamentResults[p1Type].points += 0.5;
-        tournamentResults[p2Type].points += 0.5;
-        console.log(`Result: DRAW`);
-    } else if (winner === 1) {
-        tournamentResults[p1Type].wins++;
-        tournamentResults[p2Type].losses++;
-        tournamentResults[p1Type].points += 1;
-        console.log(`Result: ${AI_NAMES[p1Type]} wins!`);
-    } else {
-        tournamentResults[p2Type].wins++;
-        tournamentResults[p1Type].losses++;
-        tournamentResults[p2Type].points += 1;
-        console.log(`Result: ${AI_NAMES[p2Type]} wins!`);
-    }
-
-    // Move to next game
-    currentGameInMatchup++;
-    if (currentGameInMatchup >= gamesPerMatchup) {
-        currentGameInMatchup = 0;
-        currentMatchup++;
-    }
-
-    // Check if tournament is complete
-    if (currentMatchup >= tournamentMatchups.length) {
-        finishTournament();
-    } else {
-        // Start next game after a short delay
-        setTimeout(runTournamentGame, 100);
-    }
-}
-
-/**
- * Finish tournament and display results
- */
-function finishTournament() {
-    tournamentRunning = false;
-
-    console.log('\n========================================');
-    console.log('         TOURNAMENT RESULTS');
-    console.log('========================================\n');
-
-    // Sort by points
-    const sorted = AI_TYPES
-        .map(ai => ({ type: ai, ...tournamentResults[ai] }))
-        .sort((a, b) => b.points - a.points);
-
-    console.log('Rank | AI Name       | W  | L  | D  | Pts');
-    console.log('-----|---------------|----|----|----|----- ');
-
-    sorted.forEach((ai, idx) => {
-        const name = AI_NAMES[ai.type].padEnd(13);
-        const w = String(ai.wins).padStart(2);
-        const l = String(ai.losses).padStart(2);
-        const d = String(ai.draws).padStart(2);
-        const pts = ai.points.toFixed(1).padStart(4);
-        console.log(`  ${idx + 1}  | ${name} | ${w} | ${l} | ${d} | ${pts}`);
-    });
-
-    console.log('\n========================================\n');
-
-    // Show alert with top 3
-    const top3 = sorted.slice(0, 3).map((ai, idx) =>
-        `${idx + 1}. ${AI_NAMES[ai.type]} (${ai.points} pts)`
-    ).join('\n');
-
-    alert(`Tournament Complete!\n\nTop 3:\n${top3}\n\nSee console for full results.`);
-
-    // Reset to human vs human
-    player1Type = PLAYER_HUMAN;
-    player2Type = PLAYER_HUMAN;
-}
-
-/**
- * Start tournament
- */
-function startTournament() {
-    if (tournamentRunning) {
-        console.log('Tournament already running!');
-        return;
-    }
-
-    tournamentRunning = true;
-    initTournament();
-    runTournamentGame();
-}
-
-/**
- * Check for tournament game end (called from game loop)
- */
-function checkTournamentGameEnd() {
-    if (!tournamentRunning) return false;
-
-    tournamentMoveCount++;
-
-    // Check for win
-    const team1Pieces = game.board.pieces.filter(p => p.team === 1).length;
-    const team2Pieces = game.board.pieces.filter(p => p.team === 2).length;
-
-    if (team1Pieces === 0) {
-        recordTournamentResult(2);
-        return true;
-    }
-    if (team2Pieces === 0) {
-        recordTournamentResult(1);
-        return true;
-    }
-
-    // Check for draw (max moves reached)
-    if (tournamentMoveCount >= MAX_TOURNAMENT_MOVES) {
-        console.log('Max moves reached - declaring draw');
-        recordTournamentResult(0);
-        return true;
-    }
-
     return false;
 }
 
-// ============================================
-// END TOURNAMENT SYSTEM
-// ============================================
-
-/**
- * Get AI move based on player type
- */
-function getAIMove(playerType, team) {
-    if (playerType === PLAYER_RANDOM) {
-        return randomAI(game.board, team);
-    } else if (playerType === PLAYER_GREEDY) {
-        return greedyAI(game.board, team);
-    } else if (playerType === PLAYER_SUPER_GREEDY) {
-        return superGreedyAI(game.board, team);
-    } else if (playerType === PLAYER_DEFENSIVE) {
-        return defensiveAI(game.board, team);
-    } else if (playerType === PLAYER_ADAPTIVE) {
-        return adaptiveAI(game.board, team);
-    } else if (playerType === PLAYER_MINIMAX) {
-        return minimaxAI(game.board, team);
-    } else if (playerType === PLAYER_MCTS) {
-        return mctsAI(game.board, team);
+function canKillMore(piece) {
+    let moves = findAvailableMoves(piece);
+    for (let move of moves) {
+        if (piceKilled(piece, move[0], move[1])) return move;
     }
     return null;
 }
 
-/**
- * Schedule AI move with delay for visualization
- */
+function movePiece(piece, x, y) {
+    if (!validJump(piece, x, y)) {
+        piece.x = piece.x0;
+        piece.y = piece.y0;
+        return;
+    }
+
+    piece.x = x;
+    piece.y = y;
+
+    // King promotion
+    if (piece.team === 1 && piece.y === 7) piece.king = true;
+    if (piece.team === 2 && piece.y === 0) piece.king = true;
+
+    const killed = piceKilled(piece, x, y);
+    piece.x0 = x;
+    piece.y0 = y;
+
+    if (killed) {
+        game.board.pieces = game.board.pieces.filter(p => p.id !== killed.id);
+        if (!canKillMore(piece)) {
+            playerTurn = playerTurn === 1 ? 2 : 1;
+            pieceSelected = null;
+            recordBoardState();
+        }
+    } else {
+        playerTurn = playerTurn === 1 ? 2 : 1;
+        pieceSelected = null;
+        recordBoardState();
+    }
+}
+
+// ============================================
+// AI integration
+// ============================================
+
 function scheduleAIMove() {
-    if (aiMoveScheduled) return;
-
+    if (aiMoveScheduled || gameOverWinner) return;
+    if (tournamentMode && !tournamentGameActive) return;
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
-
     if (currentPlayerType === PLAYER_HUMAN) return;
 
     aiMoveScheduled = true;
-
+    const delay = tournamentMode ? TOURNAMENT_MOVE_DELAY : AI_MOVE_DELAY;
     setTimeout(() => {
         executeAIMove();
         aiMoveScheduled = false;
-    }, AI_MOVE_DELAY);
+    }, delay);
 }
 
-/**
- * Execute AI move
- */
 function executeAIMove() {
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
 
-    // Handle chain captures
+    // Chain captures
     if (pieceSelected !== null) {
         const chainMove = canKillMore(pieceSelected);
         if (chainMove) {
@@ -1246,15 +460,33 @@ function executeAIMove() {
         }
     }
 
-    const result = getAIMove(currentPlayerType, playerTurn);
-
+    let result = getAIMove(currentPlayerType, playerTurn);
     if (result === null) {
         const winner = playerTurn === 1 ? 2 : 1;
-        setTimeout(() => alert(`Player ${winner} wins!`), 100);
+        if (tournamentMode === 'round_robin') {
+            recordTournamentResult(winner);
+        } else if (tournamentMode === 'bracket') {
+            recordBracketResult(winner);
+        } else {
+            gameOverWinner = winner;
+        }
         return;
     }
 
-    // Find actual piece in game board
+    // Anti-repetition: if this move leads to a 3-fold repeated position, try an alternative
+    const nextTurn = playerTurn === 1 ? 2 : 1;
+    const simResult = applyMoveOnBoard(game.board, result.piece, result.move[0], result.move[1]);
+    if (wouldRepeat(simResult.board, nextTurn)) {
+        const allMoves = getAllMovesForTeam(game.board, playerTurn);
+        const nonRepeating = allMoves.filter(m => {
+            const sim = applyMoveOnBoard(game.board, m.piece, m.move[0], m.move[1]);
+            return !wouldRepeat(sim.board, nextTurn);
+        });
+        if (nonRepeating.length > 0) {
+            result = nonRepeating[Math.floor(Math.random() * nonRepeating.length)];
+        }
+    }
+
     const piece = game.board.pieces.find(p => p.id === result.piece.id);
     if (piece) {
         pieceSelected = piece;
@@ -1265,585 +497,244 @@ function executeAIMove() {
     }
 }
 
-/**
- * Check if game is over and show result
- */
 function checkGameOver() {
-    // In tournament mode, use tournament-specific handling
-    if (tournamentRunning) {
+    if (tournamentMode) {
+        if (tournamentMode === 'bracket') return checkBracketGameEnd();
         return checkTournamentGameEnd();
     }
-
-    if (game.board.pieces.filter(p => p.team === 1).length === 0) {
-        setTimeout(() => alert("Player 2 wins!"), 100);
+    if (game.board.pieces.filter(p => p.team === 1).length === 0 ||
+        getAllMovesForTeam(game.board, 1).length === 0) {
+        gameOverWinner = 2;
         return true;
     }
-    if (game.board.pieces.filter(p => p.team === 2).length === 0) {
-        setTimeout(() => alert("Player 1 wins!"), 100);
+    if (game.board.pieces.filter(p => p.team === 2).length === 0 ||
+        getAllMovesForTeam(game.board, 2).length === 0) {
+        gameOverWinner = 1;
         return true;
     }
     return false;
 }
 
-// ============================================
-// END AI ALGORITHMS
-// ============================================
-
-// create the players
-let player1 = new Player(1, 1);
-let player2 = new Player(2, 2);
-console.log(player1);
-
-let game = new Game();
-
-function resetGame() {
-    aiMoveScheduled = false;
-    pieceSelected = null;
-    setupGame();
-}
-
-function setupGame() {
-    // create the pieces and put them in an array
-    // the pieces are numbered from 0 to 11 for player 1 and from 12 to 23 for player 2
-    // the pieces are placed in the first 3 rows of the board for each player in alternating squares
-
-    let pieces = [];
-
-    let pieceId = 0;
-    for (let i = 0; i < 4; i++) {
-        let x = i * 2;
-        let y = 0;
-        let piece = new Piece(pieceId++, x, y, 1);
-        pieces.push(piece);
+// Legacy auto-play (greedy single step)
+function autoPlay() {
+    if (pieceSelected) {
+        let move = canKillMore(pieceSelected);
+        if (move) { movePiece(pieceSelected, move[0], move[1]); return; }
     }
 
-    for (let i = 0; i < 4; i++) {
-        let x = i * 2 + 1;
-        let y = 1;
-        let piece = new Piece(pieceId++, x, y, 1);
-        pieces.push(piece);
-    }
-
-    for (let i = 0; i < 4; i++) {
-        let x = i * 2;
-        let y = 2;
-        let piece = new Piece(pieceId++, x, y, 1);
-        pieces.push(piece);
-    }
-
-
-    for (let i = 0; i < 4; i++) {
-        let x = i * 2 + 1;
-        let y = 5;
-        let piece = new Piece(pieceId++, x, y, 2);
-        pieces.push(piece);
-    }
-
-    for (let i = 0; i < 4; i++) {
-        let x = i * 2;
-        let y = 6;
-        let piece = new Piece(pieceId++, x, y, 2);
-        pieces.push(piece);
-    }
-
-    for (let i = 0; i < 4; i++) {
-        let x = i * 2 + 1;
-        let y = 7;
-        let piece = new Piece(pieceId++, x, y, 2);
-        pieces.push(piece);
-    }
-
-
-    console.log(pieces);
-
-    // create the board
-    let board = new Board(pieces);
-    console.log(board);
-
-    // create the game
-    game = new Game(board);
-    console.log(game);
-
-    playerTurn = 1;
-
-}
-
-
-let pieceSelected = null;
-
-function findAvailableMoves(piece) {
-    // find the available moves for the piece
+    let pieces = game.board.pieces.filter(p => p.team === playerTurn);
     let moves = [];
-    let x = piece.x0;
-    let y = piece.y0;
-
-    // check NE moves - one and two squares
-    if (validJump(piece, x + 1, y - 1))
-        moves.push([x + 1, y - 1]);
-
-    if (validJump(piece, x + 2, y - 2))
-        moves.push([x + 2, y - 2]);
-
-    // check NW moves - one and two squares
-    if (validJump(piece, x - 1, y - 1))
-        moves.push([x - 1, y - 1]);
-
-    if (validJump(piece, x - 2, y - 2))
-        moves.push([x - 2, y - 2]);
-
-    // check SE moves - one and two squares
-    if (validJump(piece, x + 1, y + 1))
-        moves.push([x + 1, y + 1]);
-
-    if (validJump(piece, x + 2, y + 2))
-        moves.push([x + 2, y + 2]);
-
-    // check SW moves - one and two squares
-    if (validJump(piece, x - 1, y + 1))
-        moves.push([x - 1, y + 1]);
-
-    if (validJump(piece, x - 2, y + 2))
-        moves.push([x - 2, y + 2]);
-
-    // check if the piece is a king
-    if (!piece.king)
-        return moves;
-
-    // check if the piece is a king and add the moves for the king
-
-
-
-
-    for (let xi = -7; xi < 8; xi++) {
-        if (validJump(piece, x + xi, y + xi))
-            moves.push([x + xi, y + xi]);
+    for (let p of pieces) {
+        let pMoves = findAvailableMoves(p);
+        if (pMoves.length > 0) {
+            let best = pMoves.reduce((a, b) => Math.abs(p.x0 - b[0]) > Math.abs(p.x0 - a[0]) ? b : a);
+            moves.push({ piece: p, move: best, length: Math.abs(p.x0 - best[0]) });
+        }
     }
-
-    for (let yi = -7; yi < 8; yi++) {
-        if (validJump(piece, x + yi, y - yi))
-            moves.push([x + yi, y - yi]);
-    }
-
-
-
-    return moves;
+    if (moves.length === 0) return;
+    moves.sort((a, b) => b.length - a.length);
+    const maxLen = moves[0].length;
+    const best = moves.filter(m => m.length === maxLen);
+    const chosen = best[Math.floor(Math.random() * best.length)];
+    pieceSelected = chosen.piece;
+    movePiece(chosen.piece, chosen.move[0], chosen.move[1]);
 }
 
+// ============================================
+// Input handling
+// ============================================
 
-
-function mouseDragged() {
-    // Only allow human control when it's a human player's turn
+function mousePressed() {
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
     if (currentPlayerType !== PLAYER_HUMAN) return;
+    if (mouseX < boardX || mouseX > boardX + boardWidth || mouseY < boardY || mouseY > boardY + boardHeight) return;
 
-    if (pieceSelected != null) {
-        pieceSelected.x = Math.floor((mouseX - boardX) / squareWidth);
-        pieceSelected.y = Math.floor((mouseY - boardY) / squareHeight);
-    }
-}
-
-function validJump(piece, x, y) {
-
-    // check if the piece is out of bounds
-    if (x < 0 || x > 7 || y < 0 || y > 7) {
-        // console.log("out of bounds");
-        return false;
-    }
-
-    // check if jump is diagonal
-    if (Math.abs(piece.x0 - x) != Math.abs(piece.y0 - y)) {
-        // console.log("not diagonal", piece.x0, piece.y0, x, y);
-        return false;
-    }
-
-    // check if the piece is not on the same square
-    if (piece.x0 == x && piece.y0 == y) {
-        // console.log("same square", piece.x0, piece.y0, x, y);
-        return false;
-    }
-
-    // check if the piece jumped more than 2 squares
-    if (Math.abs(piece.x0 - x) > 2 && !piece.king) {
-        // console.log("not 2 squares", piece.x0, piece.y0, x, y, Math.abs(piece.x0 - x));
-        return false;
-    }
-
-    // check if the piece jumped to an empty square
-    let otherPiece = game.board.pieces.find(p => p.x == x && p.y == y && p.id != piece.id);
-    if (otherPiece != null) {
-        // console.log("piece in the way", otherPiece.x, otherPiece.y);
-        return false
-    }
-
-    // check if the piece jumped over another piece from the same team
-    otherPiece = game.board.pieces.find(p => p.x == (piece.x0 + x) / 2 && p.y == (piece.y0 + y) / 2 && p.team == piece.team);
-    if (otherPiece != null) {
-        return false;
-    }
-
-    // check if the piece jumped over another piece from the other team
-    // if the jump is 2 squares, then there must be a piece in the middle of the other team
-    if (Math.abs(piece.x0 - x) == 2 && !piece.king) {
-        otherPiece = game.board.pieces.find(p => p.x == (piece.x0 + x) / 2 && p.y == (piece.y0 + y) / 2 && p.team != piece.team);
-        if (otherPiece == null) {
-            return false;
-        }
-    }
-
-
-    return true;
-}
-
-function piceKilled(piece, x, y) {
-    // check if there's a piece in the middle
-    // first check if the jump is more than 1 square
-    if (Math.abs(piece.x0 - x) > 1) {
-        // check if there's any piece between the start and end
-        const startx = Math.min(piece.x0, x);
-        const endx = Math.max(piece.x0, x);
-        const starty = Math.min(piece.y0, y);
-        const endy = Math.max(piece.y0, y);
-        for (let xi = startx + 1, yi = starty + 1; xi < endx && yi < endy; xi++, yi++) {
-            let otherPiece = game.board.pieces.find(p => p.x == xi && p.y == yi && p.team != piece.team);
-            return otherPiece;
-        }
-    }
-    return false;
-}
-
-function canKillMore(piece) {
-    // check if the piece can kill more pieces
-    // first find the available moves
-    // after checking if any available moves jump over a piece from the other team
-    let moves = findAvailableMoves(piece);
-    for (let i = 0; i < moves.length; i++) {
-        if (piceKilled(piece, moves[i][0], moves[i][1])) {
-            return moves[i];
-        }
-    }
-}
-
-function movePiece(piece, x, y) {
-
-    if (validJump(piece, x, y)) {
-        // move the selected piece to that position
-        piece.x = x;
-        piece.y = y;
-
-        // check if the piece is now a king
-        // if (piece.team == 1 && piece.y == 7) {
-        //     piece.king = true;
-        // }
-        // if (piece.team == 2 && piece.y == 0) {
-        //     piece.king = true;
-        // }
-
-        // if the piece is in a valid position, check if there is a piece in that position
-        const killed = piceKilled(piece, x, y)
-
-        piece.x0 = x;
-        piece.y0 = y;
-
-        if (killed) {
-
-            // if there is a piece in that position, remove it from the board
-            game.board.pieces = game.board.pieces.filter(p => p.id != killed.id);
-            // check if the piece can kill more pieces
-            if (!canKillMore(piece)) {
-                // change the turn
-                playerTurn = playerTurn == 1 ? 2 : 1;
-                pieceSelected = null;
-            }
-        } else {
-            // change the turn
-            playerTurn = playerTurn == 1 ? 2 : 1;
-            pieceSelected = null;
-        }
-    }
-    else {
-        // if the piece is not in a valid position, return it to its original position
-        piece.x = piece.x0;
-        piece.y = piece.y0;
-    }
-
-
-}
-
-
-function findBestMove(piece, moves) {
-    // find the best move
-
-    const sortedMoves = moves.map(m => {
-        const length = Math.abs(piece.x0 - m[0]);
-        return {
-            move: m,
-            length: length
-        }
-    }).sort((a, b) => b.length - a.length);
-
-    console.log("sortedMoves", sortedMoves);
-
-    return sortedMoves[0];
-}
-
-
-
-function autoPlay() {
-
-    let piece = null;
-    let move = null;
-
-    if (pieceSelected == null) {
-        // find all the pieces from current player
-        let pieces = game.board.pieces.filter(p => p.team == playerTurn);
-        // find all the available moves for each piece
-        let moves = [];
-        for (let i = 0; i < pieces.length; i++) {
-            let pieceMoves = findAvailableMoves(pieces[i])
-            console.log("findAvailableMoves", pieceMoves);
-            if (pieceMoves.length > 0) {
-                let bestMove = findBestMove(pieces[i], pieceMoves);
-                moves.push({ piece: pieces[i], move: bestMove.move, length: bestMove.length, allMoves: pieceMoves });
-            }
-        }
-
-        console.log("moves", moves);
-
-        // if there are no available moves, the other player wins
-        if (moves.length == 0) {
-            alert("Player " + (playerTurn == 1 ? 2 : 1) + " wins");
-            return;
-        }
-
-        const sortedMoves = [...moves].sort((a, b) => b.length - a.length);
-        // find the piece with the best move
-        // a move is better if it's longer
-        // if more than one has the max length, pick a random one
-        const maxLength = sortedMoves[0].length
-        const bestMoves = sortedMoves.filter(m => m.length == maxLength);
-        const pieceAndMove = bestMoves[Math.floor(Math.random() * bestMoves.length)];
-
-        console.log("sorted moves", sortedMoves);
-
-        piece = pieceAndMove.piece;
-        move = pieceAndMove.move;
-
-        if (!piece || !move) {
-            alert("Player " + (playerTurn == 1 ? 2 : 1) + " wins");
-            return;
+    let x = Math.floor((mouseX - boardX) / squareWidth);
+    let y = Math.floor((mouseY - boardY) / squareHeight);
+    let piece = game.board.pieces.find(p => p.x === x && p.y === y && p.team === playerTurn);
+    if (piece) {
+        // Mandatory capture: only allow selecting pieces that can capture
+        if (teamHasCapture(playerTurn)) {
+            piece.x0 = piece.x; piece.y0 = piece.y;
+            const moves = findAvailableMoves(piece);
+            if (!moves.some(m => piceKilled(piece, m[0], m[1]))) return;
         }
         pieceSelected = piece;
-    } else {
-        piece = pieceSelected;
-        move = canKillMore(pieceSelected);
-        if (!move) {
-            alert("Player " + (playerTurn == 1 ? 2 : 1) + " wins");
-            return;
-        }
+        piece.x0 = piece.x;
+        piece.y0 = piece.y;
     }
+}
 
-    // move the piece
-    movePiece(piece, move[0], move[1]);
+function mouseDragged() {
+    const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
+    if (currentPlayerType !== PLAYER_HUMAN || !pieceSelected) return;
+    pieceSelected.x = Math.floor((mouseX - boardX) / squareWidth);
+    pieceSelected.y = Math.floor((mouseY - boardY) / squareHeight);
 }
 
 function mouseReleased() {
-    // Only allow human control when it's a human player's turn
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
-    if (currentPlayerType !== PLAYER_HUMAN) return;
-
-    if (pieceSelected != null) {
-        let x = Math.floor((mouseX - boardX) / squareWidth);
-        let y = Math.floor((mouseY - boardY) / squareHeight);
-
-        // check if the piece is in a valid position
-        movePiece(pieceSelected, x, y);
+    if (currentPlayerType !== PLAYER_HUMAN || !pieceSelected) return;
+    let x = Math.floor((mouseX - boardX) / squareWidth);
+    let y = Math.floor((mouseY - boardY) / squareHeight);
+    // Mandatory capture: reject non-capture moves when captures exist
+    if (teamHasCapture(playerTurn) && !piceKilled(pieceSelected, x, y)) {
+        pieceSelected.x = pieceSelected.x0;
+        pieceSelected.y = pieceSelected.y0;
+        return;
     }
-
-    // check if game is over
+    movePiece(pieceSelected, x, y);
     checkGameOver();
 }
 
-function mousePressed() {
-    // Only allow human control when it's a human player's turn
-    const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
-    if (currentPlayerType !== PLAYER_HUMAN) return;
-
-    // check if the mouse is inside the board
-    if (mouseX < boardX || mouseX > boardX + boardWidth ||
-        mouseY < boardY || mouseY > boardY + boardHeight) {
-        return;
-    }
-
-    // check if the mouse is inside the board
-    let x = Math.floor((mouseX - boardX) / squareWidth);
-    let y = Math.floor((mouseY - boardY) / squareHeight);
-    console.log(x, y, boardX, boardY);
-
-
-    // check if there is a piece in the square
-    for (let i = 0; i < game.board.pieces.length; i++) {
-        if (game.board.pieces[i].x == x && game.board.pieces[i].y == y && game.board.pieces[i].team == playerTurn) {
-            pieceSelected = game.board.pieces[i];
-            pieceSelected.x0 = pieceSelected.x;
-            pieceSelected.y0 = pieceSelected.y;
-            break;
-        }
-    }
-}
-
 function mouseMoved() {
-    // Only show grab cursor for human players
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
-    if (currentPlayerType !== PLAYER_HUMAN) {
-        cursor('default');
-        return;
-    }
-
-    // if the mouse is over a piece of the current player, change the cursor
+    if (currentPlayerType !== PLAYER_HUMAN) { cursor('default'); return; }
     let x = Math.floor((mouseX - boardX) / squareWidth);
     let y = Math.floor((mouseY - boardY) / squareHeight);
-
-    let piece = game.board.pieces.find(p => p.x == x && p.y == y && p.team == playerTurn);
-    if (piece != null) {
-        cursor('grab');
-    } else {
-        cursor('default');
-    }
+    cursor(game.board.pieces.find(p => p.x === x && p.y === y && p.team === playerTurn) ? 'grab' : 'default');
 }
 
-function drawAvailableMoves() {
-    if (pieceSelected != null) {
-        let moves = findAvailableMoves(pieceSelected);
-        for (let i = 0; i < moves.length; i++) {
-            let x = moves[i][0];
-            let y = moves[i][1];
-            fill(255, 255, 0, 100);
-            rect(boardX + x * squareWidth, boardY + y * squareHeight, squareWidth, squareHeight);
-        }
-    }
+function mouseWheel(event) {
+    if (handleGameLogScroll(event)) return false;
 }
 
+// ============================================
+// p5.js setup and draw
+// ============================================
 
-// UI Elements
 let player1Select, player2Select;
 
 function setup() {
-    // create canvas in the center of the screen
     createCanvas(WIDTH, HEIGHT);
 
-    // Player 1 selector
-    let label1 = createSpan('Player 1 (Green):');
-    label1.position(20, 615);
-    label1.style('color', 'rgb(55, 110, 60)');
+    player1 = new Player(1, 1);
+    player2 = new Player(2, 2);
+
+    const ctrlY = 68;
+
+    let label1 = createSpan('Green:');
+    label1.position(boardX, ctrlY + 4);
+    label1.style('color', 'rgb(100, 190, 110)');
     label1.style('font-weight', 'bold');
 
     player1Select = createSelect();
-    player1Select.position(140, 612);
-    player1Select.option('Human', PLAYER_HUMAN);
-    player1Select.option('Random', PLAYER_RANDOM);
-    player1Select.option('Greedy', PLAYER_GREEDY);
-    player1Select.option('Super Greedy', PLAYER_SUPER_GREEDY);
-    player1Select.option('Defensive', PLAYER_DEFENSIVE);
-    player1Select.option('Adaptive', PLAYER_ADAPTIVE);
-    player1Select.option('Minimax', PLAYER_MINIMAX);
-    player1Select.option('MCTS', PLAYER_MCTS);
-    player1Select.changed(() => {
-        player1Type = player1Select.value();
-        console.log('Player 1 type:', player1Type);
-    });
+    player1Select.position(boardX + 50, ctrlY);
+    addPlayerOptions(player1Select);
+    player1Select.changed(() => { player1Type = player1Select.value(); });
 
-    // Player 2 selector
-    let label2 = createSpan('Player 2 (Yellow):');
-    label2.position(320, 615);
-    label2.style('color', 'rgb(180, 180, 50)');
+    let label2 = createSpan('Gold:');
+    label2.position(boardX + 210, ctrlY + 4);
+    label2.style('color', 'rgb(210, 200, 80)');
     label2.style('font-weight', 'bold');
 
     player2Select = createSelect();
-    player2Select.position(445, 612);
-    player2Select.option('Human', PLAYER_HUMAN);
-    player2Select.option('Random', PLAYER_RANDOM);
-    player2Select.option('Greedy', PLAYER_GREEDY);
-    player2Select.option('Super Greedy', PLAYER_SUPER_GREEDY);
-    player2Select.option('Defensive', PLAYER_DEFENSIVE);
-    player2Select.option('Adaptive', PLAYER_ADAPTIVE);
-    player2Select.option('Minimax', PLAYER_MINIMAX);
-    player2Select.option('MCTS', PLAYER_MCTS);
-    player2Select.changed(() => {
-        player2Type = player2Select.value();
-        console.log('Player 2 type:', player2Type);
+    player2Select.position(boardX + 250, ctrlY);
+    addPlayerOptions(player2Select);
+    player2Select.changed(() => { player2Type = player2Select.value(); });
+
+    const btnY = ctrlY + 32;
+
+    let btn;
+    btn = createButton('Round Robin');
+    btn.position(boardX, btnY);
+    btn.mousePressed(startRoundRobinTournament);
+    btn.style('background-color', '#3a7d44');
+    btn.style('color', 'white');
+
+    btn = createButton('Bracket');
+    btn.position(boardX + 110, btnY);
+    btn.mousePressed(startBracketTournament);
+    btn.style('background-color', '#2a6cb5');
+    btn.style('color', 'white');
+
+    btn = createButton('Auto Step');
+    btn.position(boardX + 210, btnY);
+    btn.mousePressed(autoPlay);
+    btn.style('background-color', '#555');
+    btn.style('color', '#ddd');
+
+    btn = createButton('Reset');
+    btn.position(boardX + 300, btnY);
+    btn.mousePressed(() => {
+        tournamentMode = null;
+        tournamentGameActive = false;
+        bracketRounds = [];
+        tournamentResults = {};
+        tournamentGameLog = [];
+        gameLogScrollOffset = 0;
+        player1Type = PLAYER_HUMAN;
+        player2Type = PLAYER_HUMAN;
+        player1Select.value(PLAYER_HUMAN);
+        player2Select.value(PLAYER_HUMAN);
+        resetGame();
     });
-
-    // create a button to reset the game
-    let resetButton = createButton('Reset');
-    resetButton.position(530, 650);
-    resetButton.mousePressed(resetGame);
-
-    // create a button for single auto play step (legacy)
-    let playButton = createButton('Auto Step');
-    playButton.position(440, 650);
-    playButton.mousePressed(autoPlay);
-
-    // Tournament button
-    let tournamentButton = createButton('Tournament');
-    tournamentButton.position(20, 650);
-    tournamentButton.mousePressed(startTournament);
-    tournamentButton.style('background-color', '#4CAF50');
-    tournamentButton.style('color', 'white');
-    tournamentButton.style('font-weight', 'bold');
+    btn.style('background-color', '#6b3a3a');
+    btn.style('color', '#ddd');
 
     setupGame();
-
 }
 
+function addPlayerOptions(sel) {
+    sel.option('Human', PLAYER_HUMAN);
+    sel.option('Random', PLAYER_RANDOM);
+    sel.option('Greedy', PLAYER_GREEDY);
+    sel.option('Super Greedy', PLAYER_SUPER_GREEDY);
+    sel.option('Defensive', PLAYER_DEFENSIVE);
+    sel.option('Adaptive', PLAYER_ADAPTIVE);
+    sel.option('Minimax', PLAYER_MINIMAX);
+    sel.option('MCTS', PLAYER_MCTS);
+    sel.option('Positional', PLAYER_POSITIONAL);
+}
 
 function draw() {
-    background(150, 180, 150)
+    background(30, 32, 48);
     game.draw();
-
     drawAvailableMoves();
-    drawPlayerTypes();
+    drawPlayerInfo();
+    drawPieceCounts();
 
-    // Trigger AI move if current player is AI
-    scheduleAIMove();
-}
+    // Tournament visualization
+    const hasRRResults = Object.keys(tournamentResults).length > 0 && AI_TYPES.some(t => tournamentResults[t] && tournamentResults[t].points > 0);
+    const hasBracketData = bracketRounds.length > 0;
 
-function getPlayerTypeLabel(playerType) {
-    const labels = {
-        [PLAYER_HUMAN]: '(Human)',
-        [PLAYER_RANDOM]: '(Random)',
-        [PLAYER_GREEDY]: '(Greedy)',
-        [PLAYER_SUPER_GREEDY]: '(Super Greedy)',
-        [PLAYER_DEFENSIVE]: '(Defensive)',
-        [PLAYER_ADAPTIVE]: '(Adaptive)',
-        [PLAYER_MINIMAX]: '(Minimax)',
-        [PLAYER_MCTS]: '(MCTS)'
-    };
-    return labels[playerType] || '(Unknown)';
-}
-
-function drawPlayerTypes() {
-    // Draw player type indicators
-    textSize(14);
-
-    // Player 1 type
-    fill(55, 110, 60);
-    const p1TypeLabel = getPlayerTypeLabel(player1Type);
-
-    // Player 2 type
-    fill(180, 180, 50);
-    const p2TypeLabel = getPlayerTypeLabel(player2Type);
-
-    // Show current player indicator with type
-    textSize(16);
-    if (playerTurn === 1) {
-        fill(55, 110, 60);
-        text(`▶ Player 1's turn ${p1TypeLabel}`, 10, 30);
-        fill(150, 150, 150);
-        text(`  Player 2 ${p2TypeLabel}`, 10, 55);
-    } else {
-        fill(150, 150, 150);
-        text(`  Player 1 ${p1TypeLabel}`, 10, 30);
-        fill(180, 180, 50);
-        text(`▶ Player 2's turn ${p2TypeLabel}`, 10, 55);
+    if (tournamentMode === 'round_robin' || (!tournamentMode && hasRRResults && !hasBracketData)) {
+        drawRoundRobinViz();
+        drawGameLog();
+    } else if (tournamentMode === 'bracket' || (!tournamentMode && hasBracketData)) {
+        drawBracketViz();
+        drawGameLog();
     }
+
+    // Title
+    push();
+    textAlign(LEFT, CENTER);
+    textSize(22);
+    textStyle(BOLD);
+    fill(200, 220, 200);
+    text('Checkers AI Arena', boardX, 30);
+    textSize(11);
+    textStyle(NORMAL);
+    fill(120, 140, 120);
+    text('8 AI algorithms  \u00B7  Round Robin  \u00B7  Bracket Tournament', boardX, 50);
+    pop();
+
+    // Game over banner (non-tournament)
+    if (gameOverWinner && !tournamentMode) {
+        push();
+        const bannerY = boardY + boardHeight / 2 - 30;
+        fill(0, 0, 0, 170);
+        noStroke();
+        rect(boardX - 6, bannerY, boardWidth + 12, 60, 8);
+        textAlign(CENTER, CENTER);
+        textSize(22);
+        textStyle(BOLD);
+        const wc = gameOverWinner === 1 ? player1Color : player2Color;
+        fill(wc[0], wc[1], wc[2]);
+        const winLabel = gameOverWinner === 1 ? 'Green' : 'Gold';
+        text(`${winLabel} wins!`, boardX + boardWidth / 2, bannerY + 30);
+        pop();
+    }
+
+    scheduleAIMove();
 }

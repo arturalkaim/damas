@@ -1,12 +1,50 @@
+<!DOCTYPE html>
 <html>
   <head>
-    <meta charset="UTF-8" >
-    <title>Checkers</title>
+    <meta charset="UTF-8">
+    <title>Checkers AI Arena</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.10/p5.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        background-color: #1a1a2e;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      }
+      main { position: relative; }
+      canvas { border-radius: 12px; display: block; }
+      select {
+        padding: 5px 10px;
+        border-radius: 6px;
+        border: 1px solid #555;
+        background: #2a2a3e;
+        color: #ddd;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      select:focus { outline: none; border-color: #6c8; }
+      button {
+        padding: 7px 16px;
+        border-radius: 6px;
+        border: none;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      button:hover { opacity: 0.85; }
+      button:active { transform: scale(0.97); }
+      span { font-size: 13px; }
+    </style>
   </head>
-
-  <body style="background-color: whitesmoke">
-    <h1>Checkers</h1>
-    <script src="sketch.js"></script>
+  <body>
+    <main>
+      <script src="ai.js"></script>
+      <script src="tournament.js"></script>
+      <script src="sketch.js"></script>
+    </main>
   </body>
 </html>
