@@ -283,7 +283,7 @@ function isSquareSafe(board, x, y, team) {
 
 // Small random noise to break ties and add variety between identical matchups
 const AI_NOISE = 15;
-function noise() { return (Math.random() - 0.5) * AI_NOISE; }
+function aiNoise() { return (Math.random() - 0.5) * AI_NOISE; }
 
 // ============================================
 // AI Algorithms
@@ -310,7 +310,7 @@ function greedyAI(board, team) {
     for (let { piece, move } of moves) {
         const chains = countChainCaptures(board, piece, move[0], move[1]);
         const safe = isSquareSafe(board, move[0], move[1], team);
-        const score = chains * 100 + (safe ? 50 : 0) + noise();
+        const score = chains * 100 + (safe ? 50 : 0) + aiNoise();
         scoredMoves.push({ piece, move, score });
     }
     scoredMoves.sort((a, b) => b.score - a.score);
@@ -344,7 +344,7 @@ function superGreedyAI(board, team) {
 
         let score = totalCaptures * 200 + (safe ? 100 : -60) + advancement * 10 + (centerX + centerY) / 2;
         score -= exposedPieces * 120;
-        score += noise();
+        score += aiNoise();
         allMoves.push({ piece, move, score });
     }
 
@@ -376,7 +376,7 @@ function defensiveAI(board, team) {
         score -= exposedPieces * 150;
         score += isCapture && destinationSafe ? 150 : 0;
         score += backRankBonus * 10;
-        score += noise();
+        score += aiNoise();
         allMoves.push({ piece, move, score });
     }
 
@@ -427,7 +427,7 @@ function adaptiveAI(board, team) {
             score += chainCaptures * 100 + (safe ? 150 : -100) + centerBonus * 15 + advancement * 10;
         }
         score -= exposedPieces * exposurePenalty[strategy];
-        score += noise();
+        score += aiNoise();
         allMoves.push({ piece, move, score, strategy });
     }
 
@@ -486,7 +486,7 @@ function minimaxAI(board, team, depth = 4) {
     let bestScore = team === 1 ? -Infinity : Infinity;
     for (let { piece, move } of moves) {
         const result = applyMoveOnBoard(board, piece, move[0], move[1]);
-        const score = minimax(result.board, depth - 1, -Infinity, Infinity, team !== 1, team === 1 ? 2 : 1, depth) + noise();
+        const score = minimax(result.board, depth - 1, -Infinity, Infinity, team !== 1, team === 1 ? 2 : 1, depth) + aiNoise();
         if ((team === 1 && score > bestScore) || (team === 2 && score < bestScore)) {
             bestScore = score;
             bestMove = { piece, move };
@@ -686,7 +686,7 @@ function positionalAI(board, team) {
         if (isCapture && safe) score += 150;
         else if (isCapture && !safe) score += 20;
 
-        score += noise();
+        score += aiNoise();
         allMoves.push({ piece, move, score });
     }
 
