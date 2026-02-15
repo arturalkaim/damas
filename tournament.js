@@ -21,6 +21,13 @@ let currentGameInMatchup = 0;
 let tournamentMoveCount = 0;
 const MAX_TOURNAMENT_MOVES = 500;
 const TOURNAMENT_MOVE_DELAY = 50;
+const NO_PROGRESS_LIMIT = 80; // plies without capture/kinging → adjudicate
+
+// Draw detection state (reset per game)
+let pliesSinceProgress = 0;
+let prevPieceCount = 0;
+let prevKingCount = 0;
+let positionHistory = new Map();
 
 let tournamentGameActive = false; // true while a tournament game is being played
 
@@ -40,6 +47,56 @@ const BRACKET_SEEDS = [
     PLAYER_MCTS, PLAYER_MINIMAX, PLAYER_ADAPTIVE, PLAYER_POSITIONAL,
     PLAYER_SUPER_GREEDY, PLAYER_DEFENSIVE, PLAYER_GREEDY, PLAYER_RANDOM
 ];
+
+// ============================================
+// Draw detection helpers
+// ============================================
+
+function getBoardHash(board, turn) {
+    const pieces = board.pieces.map(p => `${p.team}${p.king ? 'K' : ''}${p.x},${p.y}`).sort().join('|');
+    return `${turn}:${pieces}`;
+}
+
+function resetDrawDetection(board) {
+    pliesSinceProgress = 0;
+    prevPieceCount = board ? board.pieces.length : 0;
+    prevKingCount = board ? board.pieces.filter(p => p.king).length : 0;
+    positionHistory = new Map();
+}
+
+function checkDrawConditions(board, turn) {
+    // Track progress: capture (piece count changed) or kinging (king count changed)
+    const currentPieceCount = board.pieces.length;
+    const currentKingCount = board.pieces.filter(p => p.king).length;
+
+    if (currentPieceCount < prevPieceCount || currentKingCount > prevKingCount) {
+        pliesSinceProgress = 0;
+        positionHistory = new Map(); // reset repetition on progress
+    } else {
+        pliesSinceProgress++;
+    }
+    prevPieceCount = currentPieceCount;
+    prevKingCount = currentKingCount;
+
+    // Threefold repetition
+    const hash = getBoardHash(board, turn);
+    const count = (positionHistory.get(hash) || 0) + 1;
+    positionHistory.set(hash, count);
+    if (count >= 3) return { end: true, reason: 'repetition' };
+
+    // No progress adjudication
+    if (pliesSinceProgress >= NO_PROGRESS_LIMIT) return { end: true, reason: 'no_progress' };
+
+    return { end: false };
+}
+
+function adjudicateByEvaluation(board) {
+    const score = evaluateBoard(board);
+    // Require a meaningful advantage (margin of 30+) to award a win
+    if (score > 30) return 1;
+    if (score < -30) return 2;
+    return 0; // draw
+}
 
 // ============================================
 // Round Robin
@@ -76,6 +133,7 @@ function runTournamentGame() {
     }
     tournamentMoveCount = 0;
     resetGame();
+    resetDrawDetection(game.board);
 }
 
 function recordTournamentResult(winner) {
@@ -152,6 +210,14 @@ function checkTournamentGameEnd() {
     const currentTeamMoves = getAllMovesForTeam(game.board, playerTurn);
     if (currentTeamMoves.length === 0) {
         const winner = playerTurn === 1 ? 2 : 1;
+        recordTournamentResult(winner);
+        return true;
+    }
+
+    // Draw detection: repetition or no-progress
+    const drawCheck = checkDrawConditions(game.board, playerTurn);
+    if (drawCheck.end) {
+        const winner = adjudicateByEvaluation(game.board);
         recordTournamentResult(winner);
         return true;
     }
@@ -240,6 +306,7 @@ function runBracketGame() {
     }
     tournamentMoveCount = 0;
     resetGame();
+    resetDrawDetection(game.board);
 }
 
 function recordBracketResult(winner) {
@@ -310,6 +377,14 @@ function checkBracketGameEnd() {
     const currentTeamMoves = getAllMovesForTeam(game.board, playerTurn);
     if (currentTeamMoves.length === 0) {
         const winner = playerTurn === 1 ? 2 : 1;
+        recordBracketResult(winner);
+        return true;
+    }
+
+    // Draw detection: repetition or no-progress
+    const drawCheck = checkDrawConditions(game.board, playerTurn);
+    if (drawCheck.end) {
+        const winner = adjudicateByEvaluation(game.board);
         recordBracketResult(winner);
         return true;
     }
@@ -747,7 +822,8 @@ function handleGameLogScroll(event) {
     const logW = vizWidth;
     const logH = 32 + GAME_LOG_VISIBLE_ROWS * 22 + 10;
 
-    if (mouseX >= logX && mouseX <= logX + logW && mouseY >= logY && mouseY <= logY + logH) {
+    const mx = scaledMouseX(), my = scaledMouseY();
+    if (mx >= logX && mx <= logX + logW && my >= logY && my <= logY + logH) {
         const maxOffset = tournamentGameLog.length - GAME_LOG_VISIBLE_ROWS;
         gameLogScrollOffset = constrain(gameLogScrollOffset + (event.delta > 0 ? 1 : -1), 0, maxOffset);
         return true;

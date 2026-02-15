@@ -205,16 +205,27 @@ function evaluateBoard(board, depth) {
         const centerY = Math.abs(3.5 - piece.y);
         pieceValue += (4 - centerX - centerY) * 0.3;
 
-        // Safety: penalize threatened pieces
+        // Safety: penalize threatened pieces (aligned with heuristic AI penalties)
         if (!isSquareSafe(board, piece.x, piece.y, piece.team)) {
-            pieceValue -= piece.king ? 15 : 10;
+            pieceValue -= piece.king ? 20 : 12;
         }
 
         score += sign * pieceValue;
     }
 
+    // Global exposure: count exposed pieces per side (matches heuristic AI meta)
+    let team1Exposed = 0, team2Exposed = 0;
+    for (let p of team1Pieces) {
+        if (!isSquareSafe(board, p.x, p.y, 1)) team1Exposed++;
+    }
+    for (let p of team2Pieces) {
+        if (!isSquareSafe(board, p.x, p.y, 2)) team2Exposed++;
+    }
+    score -= team1Exposed * 8;
+    score += team2Exposed * 8;
+
     // Mobility difference
-    score += (team1Moves.length - team2Moves.length) * 0.2;
+    score += (team1Moves.length - team2Moves.length) * 0.3;
 
     // Back rank integrity
     const team1BackRank = team1Pieces.filter(p => p.y === 0).length;
@@ -441,13 +452,46 @@ function adaptiveAI(board, team) {
 // Minimax with Alpha-Beta Pruning
 // ============================================
 
+function quiescence(board, alpha, beta, maximizingPlayer, currentTeam, qDepth) {
+    const standPat = evaluateBoard(board);
+    if (qDepth <= 0) return standPat;
+
+    if (maximizingPlayer) {
+        if (standPat >= beta) return beta;
+        if (standPat > alpha) alpha = standPat;
+        const moves = getAllMovesForTeam(board, currentTeam);
+        const captures = moves.filter(m => pieceKilledOnBoard(m.piece, m.move[0], m.move[1], board) !== null);
+        if (captures.length === 0) return standPat;
+        for (let { piece, move } of captures) {
+            const result = applyMoveOnBoard(board, piece, move[0], move[1]);
+            const score = quiescence(result.board, alpha, beta, false, currentTeam === 1 ? 2 : 1, qDepth - 1);
+            if (score > alpha) alpha = score;
+            if (alpha >= beta) return beta;
+        }
+        return alpha;
+    } else {
+        if (standPat <= alpha) return alpha;
+        if (standPat < beta) beta = standPat;
+        const moves = getAllMovesForTeam(board, currentTeam);
+        const captures = moves.filter(m => pieceKilledOnBoard(m.piece, m.move[0], m.move[1], board) !== null);
+        if (captures.length === 0) return standPat;
+        for (let { piece, move } of captures) {
+            const result = applyMoveOnBoard(board, piece, move[0], move[1]);
+            const score = quiescence(result.board, alpha, beta, true, currentTeam === 1 ? 2 : 1, qDepth - 1);
+            if (score < beta) beta = score;
+            if (alpha >= beta) return alpha;
+        }
+        return beta;
+    }
+}
+
 function minimax(board, depth, alpha, beta, maximizingPlayer, currentTeam, maxDepth) {
     const gameStatus = isGameOver(board);
     if (gameStatus.over) {
         const depthPenalty = maxDepth - depth;
         return gameStatus.winner === 1 ? (10000 - depthPenalty) : -(10000 - depthPenalty);
     }
-    if (depth === 0) return evaluateBoard(board);
+    if (depth === 0) return quiescence(board, alpha, beta, maximizingPlayer, currentTeam, 2);
 
     const moves = getAllMovesForTeam(board, currentTeam);
     // Move ordering: try captures first for better pruning
@@ -647,7 +691,7 @@ function positionalAI(board, team) {
                 }
             }
         }
-        score += cohesion * 25;
+        score += cohesion * 12; // halved: nested loop double-counts pairs
 
         // 2. Center control: prefer central squares
         const centerX = 4 - Math.abs(3.5 - move[0]);
@@ -680,11 +724,15 @@ function positionalAI(board, team) {
         for (let p of myPieces) {
             if (!isSquareSafe(result.board, p.x, p.y, team)) exposedPieces++;
         }
-        score -= exposedPieces * 60;
+        score -= exposedPieces * 120;
 
-        // 7. Captures: take them even at some risk — patient but not passive
+        // 7. Captures: take safe ones, penalize unsafe
         if (isCapture && safe) score += 150;
-        else if (isCapture && !safe) score += 20;
+        else if (isCapture && !safe) score -= 50;
+
+        // 8. Opponent capture threat: penalize giving opponent forced captures
+        const oppCaptures = oppMoves.filter(m => pieceKilledOnBoard(m.piece, m.move[0], m.move[1], result.board) !== null);
+        if (oppCaptures.length > 0) score -= oppCaptures.length * 40;
 
         score += aiNoise();
         allMoves.push({ piece, move, score });

@@ -2,6 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Checkers AI Arena</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.10/p5.min.js"></script>
     <style>
@@ -9,13 +10,60 @@
       body {
         background-color: #1a1a2e;
         display: flex;
-        justify-content: center;
+        flex-direction: column;
         align-items: center;
         min-height: 100vh;
         font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        padding: 16px 24px;
       }
-      main { position: relative; }
-      canvas { border-radius: 12px; display: block; }
+
+      /* Header with title and controls */
+      #header {
+        width: 100%;
+        max-width: 1120px;
+        margin-bottom: 8px;
+      }
+      #title-row {
+        margin-bottom: 10px;
+      }
+      #title-row h1 {
+        color: rgb(200, 220, 200);
+        font-size: 22px;
+        font-weight: bold;
+        margin: 0;
+      }
+      #title-row .subtitle {
+        color: rgb(120, 140, 120);
+        font-size: 11px;
+        margin-top: 2px;
+      }
+      #controls-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+      #controls-row .player-label {
+        font-size: 13px;
+        font-weight: bold;
+      }
+      #controls-row .separator {
+        width: 12px;
+      }
+
+      /* Canvas wrapper — scales to fit viewport */
+      #canvas-wrapper {
+        width: 100%;
+        max-width: 1120px;
+        position: relative;
+      }
+      #canvas-wrapper canvas {
+        border-radius: 12px;
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
       select {
         padding: 5px 10px;
         border-radius: 6px;
@@ -37,14 +85,31 @@
       }
       button:hover { opacity: 0.85; }
       button:active { transform: scale(0.97); }
-      span { font-size: 13px; }
     </style>
   </head>
   <body>
-    <main>
-      <script src="ai.js"></script>
-      <script src="tournament.js"></script>
-      <script src="sketch.js"></script>
-    </main>
+    <div id="header">
+      <div id="title-row">
+        <h1>Checkers AI Arena</h1>
+        <div class="subtitle">8 AI algorithms &middot; Round Robin &middot; Bracket Tournament</div>
+      </div>
+      <div id="controls-row">
+        <span class="player-label" style="color: rgb(100, 190, 110);">Green:</span>
+        <select id="player1-select"></select>
+        <div class="separator"></div>
+        <span class="player-label" style="color: rgb(210, 200, 80);">Gold:</span>
+        <select id="player2-select"></select>
+        <div class="separator"></div>
+        <button id="btn-round-robin" style="background-color: #3a7d44; color: white;">Round Robin</button>
+        <button id="btn-bracket" style="background-color: #2a6cb5; color: white;">Bracket</button>
+        <button id="btn-auto-step" style="background-color: #555; color: #ddd;">Auto Step</button>
+        <button id="btn-reset" style="background-color: #6b3a3a; color: #ddd;">Reset</button>
+      </div>
+    </div>
+    <div id="canvas-wrapper"></div>
+
+    <script src="ai.js"></script>
+    <script src="tournament.js"></script>
+    <script src="sketch.js"></script>
   </body>
 </html>

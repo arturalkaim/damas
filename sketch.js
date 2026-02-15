@@ -13,17 +13,17 @@
 // ============================================
 
 const WIDTH = 1120;
-const HEIGHT = 740;
+const HEIGHT = 680;
 
 const boardWidth = 400;
 const boardHeight = 400;
 const boardX = 60;
-const boardY = 160;
+const boardY = 55;
 const squareWidth = boardWidth / 8;
 const squareHeight = boardHeight / 8;
 
 const vizX = 520;
-const vizY = 70;
+const vizY = 10;
 const vizWidth = 570;
 const vizHeight = 450;
 
@@ -547,10 +547,11 @@ function autoPlay() {
 function mousePressed() {
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
     if (currentPlayerType !== PLAYER_HUMAN) return;
-    if (mouseX < boardX || mouseX > boardX + boardWidth || mouseY < boardY || mouseY > boardY + boardHeight) return;
+    const mx = scaledMouseX(), my = scaledMouseY();
+    if (mx < boardX || mx > boardX + boardWidth || my < boardY || my > boardY + boardHeight) return;
 
-    let x = Math.floor((mouseX - boardX) / squareWidth);
-    let y = Math.floor((mouseY - boardY) / squareHeight);
+    let x = Math.floor((mx - boardX) / squareWidth);
+    let y = Math.floor((my - boardY) / squareHeight);
     let piece = game.board.pieces.find(p => p.x === x && p.y === y && p.team === playerTurn);
     if (piece) {
         // Mandatory capture: only allow selecting pieces that can capture
@@ -568,15 +569,17 @@ function mousePressed() {
 function mouseDragged() {
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
     if (currentPlayerType !== PLAYER_HUMAN || !pieceSelected) return;
-    pieceSelected.x = Math.floor((mouseX - boardX) / squareWidth);
-    pieceSelected.y = Math.floor((mouseY - boardY) / squareHeight);
+    const mx = scaledMouseX(), my = scaledMouseY();
+    pieceSelected.x = Math.floor((mx - boardX) / squareWidth);
+    pieceSelected.y = Math.floor((my - boardY) / squareHeight);
 }
 
 function mouseReleased() {
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
     if (currentPlayerType !== PLAYER_HUMAN || !pieceSelected) return;
-    let x = Math.floor((mouseX - boardX) / squareWidth);
-    let y = Math.floor((mouseY - boardY) / squareHeight);
+    const mx = scaledMouseX(), my = scaledMouseY();
+    let x = Math.floor((mx - boardX) / squareWidth);
+    let y = Math.floor((my - boardY) / squareHeight);
     // Mandatory capture: reject non-capture moves when captures exist
     if (teamHasCapture(playerTurn) && !piceKilled(pieceSelected, x, y)) {
         pieceSelected.x = pieceSelected.x0;
@@ -590,8 +593,9 @@ function mouseReleased() {
 function mouseMoved() {
     const currentPlayerType = playerTurn === 1 ? player1Type : player2Type;
     if (currentPlayerType !== PLAYER_HUMAN) { cursor('default'); return; }
-    let x = Math.floor((mouseX - boardX) / squareWidth);
-    let y = Math.floor((mouseY - boardY) / squareHeight);
+    const mx = scaledMouseX(), my = scaledMouseY();
+    let x = Math.floor((mx - boardX) / squareWidth);
+    let y = Math.floor((my - boardY) / squareHeight);
     cursor(game.board.pieces.find(p => p.x === x && p.y === y && p.team === playerTurn) ? 'grab' : 'default');
 }
 
@@ -605,58 +609,52 @@ function mouseWheel(event) {
 
 let player1Select, player2Select;
 
+// Scale factor for CSS-scaled canvas mouse coordinates
+function getCanvasScale() {
+    const canvas = document.querySelector('#canvas-wrapper canvas');
+    if (!canvas) return 1;
+    return WIDTH / canvas.offsetWidth;
+}
+
+function scaledMouseX() { return mouseX * getCanvasScale(); }
+function scaledMouseY() { return mouseY * getCanvasScale(); }
+
 function setup() {
-    createCanvas(WIDTH, HEIGHT);
+    const cnv = createCanvas(WIDTH, HEIGHT);
+    cnv.parent('canvas-wrapper');
 
     player1 = new Player(1, 1);
     player2 = new Player(2, 2);
 
-    const ctrlY = 68;
+    // Wire up HTML select elements
+    player1Select = document.getElementById('player1-select');
+    player2Select = document.getElementById('player2-select');
 
-    let label1 = createSpan('Green:');
-    label1.position(boardX, ctrlY + 4);
-    label1.style('color', 'rgb(100, 190, 110)');
-    label1.style('font-weight', 'bold');
+    const options = [
+        ['Human', PLAYER_HUMAN],
+        ['Random', PLAYER_RANDOM],
+        ['Greedy', PLAYER_GREEDY],
+        ['Super Greedy', PLAYER_SUPER_GREEDY],
+        ['Defensive', PLAYER_DEFENSIVE],
+        ['Adaptive', PLAYER_ADAPTIVE],
+        ['Minimax', PLAYER_MINIMAX],
+        ['MCTS', PLAYER_MCTS],
+        ['Positional', PLAYER_POSITIONAL]
+    ];
+    for (const [label, val] of options) {
+        const o1 = new Option(label, val);
+        const o2 = new Option(label, val);
+        player1Select.add(o1);
+        player2Select.add(o2);
+    }
+    player1Select.addEventListener('change', () => { player1Type = player1Select.value; });
+    player2Select.addEventListener('change', () => { player2Type = player2Select.value; });
 
-    player1Select = createSelect();
-    player1Select.position(boardX + 50, ctrlY);
-    addPlayerOptions(player1Select);
-    player1Select.changed(() => { player1Type = player1Select.value(); });
-
-    let label2 = createSpan('Gold:');
-    label2.position(boardX + 210, ctrlY + 4);
-    label2.style('color', 'rgb(210, 200, 80)');
-    label2.style('font-weight', 'bold');
-
-    player2Select = createSelect();
-    player2Select.position(boardX + 250, ctrlY);
-    addPlayerOptions(player2Select);
-    player2Select.changed(() => { player2Type = player2Select.value(); });
-
-    const btnY = ctrlY + 32;
-
-    let btn;
-    btn = createButton('Round Robin');
-    btn.position(boardX, btnY);
-    btn.mousePressed(startRoundRobinTournament);
-    btn.style('background-color', '#3a7d44');
-    btn.style('color', 'white');
-
-    btn = createButton('Bracket');
-    btn.position(boardX + 110, btnY);
-    btn.mousePressed(startBracketTournament);
-    btn.style('background-color', '#2a6cb5');
-    btn.style('color', 'white');
-
-    btn = createButton('Auto Step');
-    btn.position(boardX + 210, btnY);
-    btn.mousePressed(autoPlay);
-    btn.style('background-color', '#555');
-    btn.style('color', '#ddd');
-
-    btn = createButton('Reset');
-    btn.position(boardX + 300, btnY);
-    btn.mousePressed(() => {
+    // Wire up HTML buttons
+    document.getElementById('btn-round-robin').addEventListener('click', startRoundRobinTournament);
+    document.getElementById('btn-bracket').addEventListener('click', startBracketTournament);
+    document.getElementById('btn-auto-step').addEventListener('click', autoPlay);
+    document.getElementById('btn-reset').addEventListener('click', () => {
         tournamentMode = null;
         tournamentGameActive = false;
         bracketRounds = [];
@@ -665,26 +663,12 @@ function setup() {
         gameLogScrollOffset = 0;
         player1Type = PLAYER_HUMAN;
         player2Type = PLAYER_HUMAN;
-        player1Select.value(PLAYER_HUMAN);
-        player2Select.value(PLAYER_HUMAN);
+        player1Select.value = PLAYER_HUMAN;
+        player2Select.value = PLAYER_HUMAN;
         resetGame();
     });
-    btn.style('background-color', '#6b3a3a');
-    btn.style('color', '#ddd');
 
     setupGame();
-}
-
-function addPlayerOptions(sel) {
-    sel.option('Human', PLAYER_HUMAN);
-    sel.option('Random', PLAYER_RANDOM);
-    sel.option('Greedy', PLAYER_GREEDY);
-    sel.option('Super Greedy', PLAYER_SUPER_GREEDY);
-    sel.option('Defensive', PLAYER_DEFENSIVE);
-    sel.option('Adaptive', PLAYER_ADAPTIVE);
-    sel.option('Minimax', PLAYER_MINIMAX);
-    sel.option('MCTS', PLAYER_MCTS);
-    sel.option('Positional', PLAYER_POSITIONAL);
 }
 
 function draw() {
@@ -705,19 +689,6 @@ function draw() {
         drawBracketViz();
         drawGameLog();
     }
-
-    // Title
-    push();
-    textAlign(LEFT, CENTER);
-    textSize(22);
-    textStyle(BOLD);
-    fill(200, 220, 200);
-    text('Checkers AI Arena', boardX, 30);
-    textSize(11);
-    textStyle(NORMAL);
-    fill(120, 140, 120);
-    text('8 AI algorithms  \u00B7  Round Robin  \u00B7  Bracket Tournament', boardX, 50);
-    pop();
 
     // Game over banner (non-tournament)
     if (gameOverWinner && !tournamentMode) {
