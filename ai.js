@@ -179,10 +179,6 @@ function evaluateBoard(board, depth) {
     // Win/loss detection with depth penalty (prefer faster wins)
     if (team1Pieces.length === 0) return depth != null ? -(10000 - depth) : -10000;
     if (team2Pieces.length === 0) return depth != null ? (10000 - depth) : 10000;
-    const team1Moves = getAllMovesForTeam(board, 1);
-    const team2Moves = getAllMovesForTeam(board, 2);
-    if (team1Moves.length === 0) return depth != null ? -(10000 - depth) : -10000;
-    if (team2Moves.length === 0) return depth != null ? (10000 - depth) : 10000;
 
     let score = 0;
 
@@ -205,27 +201,13 @@ function evaluateBoard(board, depth) {
         const centerY = Math.abs(3.5 - piece.y);
         pieceValue += (4 - centerX - centerY) * 0.3;
 
-        // Safety: penalize threatened pieces (aligned with heuristic AI penalties)
+        // Safety: penalize threatened pieces (kept below material value)
         if (!isSquareSafe(board, piece.x, piece.y, piece.team)) {
-            pieceValue -= piece.king ? 20 : 12;
+            pieceValue -= piece.king ? 8 : 5;
         }
 
         score += sign * pieceValue;
     }
-
-    // Global exposure: count exposed pieces per side (matches heuristic AI meta)
-    let team1Exposed = 0, team2Exposed = 0;
-    for (let p of team1Pieces) {
-        if (!isSquareSafe(board, p.x, p.y, 1)) team1Exposed++;
-    }
-    for (let p of team2Pieces) {
-        if (!isSquareSafe(board, p.x, p.y, 2)) team2Exposed++;
-    }
-    score -= team1Exposed * 8;
-    score += team2Exposed * 8;
-
-    // Mobility difference
-    score += (team1Moves.length - team2Moves.length) * 0.3;
 
     // Back rank integrity
     const team1BackRank = team1Pieces.filter(p => p.y === 0).length;
@@ -486,27 +468,33 @@ function quiescence(board, alpha, beta, maximizingPlayer, currentTeam, qDepth) {
 }
 
 function minimax(board, depth, alpha, beta, maximizingPlayer, currentTeam, maxDepth) {
-    const gameStatus = isGameOver(board);
-    if (gameStatus.over) {
+    // Generate moves once — also serves as game-over check (no moves = loss)
+    const moves = getAllMovesForTeam(board, currentTeam);
+    if (moves.length === 0) {
         const depthPenalty = maxDepth - depth;
-        return gameStatus.winner === 1 ? (10000 - depthPenalty) : -(10000 - depthPenalty);
+        // Current team has no moves = they lose
+        return currentTeam === 1 ? -(10000 - depthPenalty) : (10000 - depthPenalty);
     }
+    // Also check for no pieces (shouldn't happen if moves exist, but safety)
+    if (!board.pieces.some(p => p.team === 1)) return -(10000 - (maxDepth - depth));
+    if (!board.pieces.some(p => p.team === 2)) return (10000 - (maxDepth - depth));
+
     if (depth === 0) return quiescence(board, alpha, beta, maximizingPlayer, currentTeam, 2);
 
-    const moves = getAllMovesForTeam(board, currentTeam);
     // Move ordering: try captures first for better pruning
     moves.sort((a, b) => {
         const aCapture = pieceKilledOnBoard(a.piece, a.move[0], a.move[1], board) !== null ? 1 : 0;
         const bCapture = pieceKilledOnBoard(b.piece, b.move[0], b.move[1], board) !== null ? 1 : 0;
         return bCapture - aCapture;
     });
+    const nextTeam = currentTeam === 1 ? 2 : 1;
     if (maximizingPlayer) {
         let maxEval = -Infinity;
         for (let { piece, move } of moves) {
             const result = applyMoveOnBoard(board, piece, move[0], move[1]);
-            const evalScore = minimax(result.board, depth - 1, alpha, beta, false, currentTeam === 1 ? 2 : 1, maxDepth);
-            maxEval = Math.max(maxEval, evalScore);
-            alpha = Math.max(alpha, evalScore);
+            const evalScore = minimax(result.board, depth - 1, alpha, beta, false, nextTeam, maxDepth);
+            if (evalScore > maxEval) maxEval = evalScore;
+            if (evalScore > alpha) alpha = evalScore;
             if (beta <= alpha) break;
         }
         return maxEval;
@@ -514,23 +502,30 @@ function minimax(board, depth, alpha, beta, maximizingPlayer, currentTeam, maxDe
         let minEval = Infinity;
         for (let { piece, move } of moves) {
             const result = applyMoveOnBoard(board, piece, move[0], move[1]);
-            const evalScore = minimax(result.board, depth - 1, alpha, beta, true, currentTeam === 1 ? 2 : 1, maxDepth);
-            minEval = Math.min(minEval, evalScore);
-            beta = Math.min(beta, evalScore);
+            const evalScore = minimax(result.board, depth - 1, alpha, beta, true, nextTeam, maxDepth);
+            if (evalScore < minEval) minEval = evalScore;
+            if (evalScore < beta) beta = evalScore;
             if (beta <= alpha) break;
         }
         return minEval;
     }
 }
 
-function minimaxAI(board, team, depth = 4) {
+function minimaxAI(board, team, depth = 6) {
     const moves = getAllMovesForTeam(board, team);
     if (moves.length === 0) return null;
+    // Move ordering at root too
+    moves.sort((a, b) => {
+        const aCapture = pieceKilledOnBoard(a.piece, a.move[0], a.move[1], board) !== null ? 1 : 0;
+        const bCapture = pieceKilledOnBoard(b.piece, b.move[0], b.move[1], board) !== null ? 1 : 0;
+        return bCapture - aCapture;
+    });
     let bestMove = null;
     let bestScore = team === 1 ? -Infinity : Infinity;
+    const nextTeam = team === 1 ? 2 : 1;
     for (let { piece, move } of moves) {
         const result = applyMoveOnBoard(board, piece, move[0], move[1]);
-        const score = minimax(result.board, depth - 1, -Infinity, Infinity, team !== 1, team === 1 ? 2 : 1, depth) + aiNoise();
+        const score = minimax(result.board, depth - 1, -Infinity, Infinity, team !== 1, nextTeam, depth) + aiNoise() * 0.1;
         if ((team === 1 && score > bestScore) || (team === 2 && score < bestScore)) {
             bestScore = score;
             bestMove = { piece, move };
